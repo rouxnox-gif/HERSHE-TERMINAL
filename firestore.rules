@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Check if user is authenticated with Firebase
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if authenticated user is an authorized member of the requested store
+    function isStoreMember(storeId) {
+      return isAuthenticated() && (
+        exists(/databases/$(database)/documents/stores/$(storeId)/members/$(request.auth.uid))
+      );
+    }
+
+    // Secure PIN Registry (store_pins): Maps hashed PIN to permanent storeId
+    match /store_pins/{pinHash} {
+      // Allow get only by exact hash lookup; prevent collection listing / enumeration
+      allow get: if isAuthenticated();
+      allow list: if false;
+
+      // Allow creating a new PIN mapping if authenticated and user is owner
+      allow create: if isAuthenticated() && 
+        request.resource.data.storeId is string &&
+        request.resource.data.ownerUid == request.auth.uid;
+
+      // Allow update or delete if user is the owner or an authorized store member
+      allow update, delete: if isAuthenticated() && (
+        resource.data.ownerUid == request.auth.uid ||
+        isStoreMember(resource.data.storeId)
+      );
+    }
+
+    // Public store registry reference (resolves storeId for customer portal links)
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Isolated Store Partition (/stores/{storeId}/...)
+    match /stores/{storeId} {
+      // Root store document access
+      allow read: if true;
+      allow create: if isAuthenticated() && 
+        request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isStoreMember(storeId) || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+
+      // Members subcollection:
+      // Membership creation or update is allowed if:
+      // 1. An existing authorized store member is modifying the member
+      // OR
+      // 2. The user is enrolling/connecting themselves (request.auth.uid == memberId) AND provides
+      //    a valid pinHash matching this storeId in /store_pins/{pinHash}.
+      match /members/{memberId} {
+        allow read: if isStoreMember(storeId) || (isAuthenticated() && request.auth.uid == memberId);
+        
+        allow create, update: if isAuthenticated() && (
+          isStoreMember(storeId) ||
+          (
+            request.auth.uid == memberId &&
+            request.resource.data.pinHash is string &&
+            get(/databases/$(database)/documents/store_pins/$(request.resource.data.pinHash)).data.storeId == storeId
+          )
+        );
+
+        allow delete: if isStoreMember(storeId);
+      }
+
+      // Metadata subcollection (Store Info, Pre-order Open/Close status, Add-ons)
+      match /meta/{docId} {
+        allow read: if true;
+        allow write: if true;
+      }
+
+      // Products subcollection: Publicly readable for customer pre-order menu, editable only by store staff/owner
+      match /products/{productId} {
+        allow read: if true;
+        allow write: if isStoreMember(storeId);
+      }
+
+      // Pending Orders subcollection: Publicly creatable for customer pre-orders, read/managed by store staff/owner
+      match /pendingOrders/{pendingId} {
+        allow create: if true;
+        allow read, update, delete: if isStoreMember(storeId);
+      }
+
+      // Devices subcollection
+      match /devices/{deviceId} {
+        allow read, write: if isStoreMember(storeId);
+      }
+
+      // Transactional & Private Subcollections:
+      // /stores/{storeId}/orders/{orderId}
+      // /stores/{storeId}/expenses/{expenseId}
+      // /stores/{storeId}/inventoryMovements/{movementId}
+      // /stores/{storeId}/inventory/{itemId}
+      // /stores/{storeId}/shifts/{shiftId}
+      // /stores/{storeId}/distributions/{month}
+      match /{subcollection}/{docId} {
+        allow read, write: if isStoreMember(storeId);
+      }
+    }
+
+    // Authenticated User Profile records
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+
+

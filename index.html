@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Remix Remix HERSHE POS Terminal</title>
+    <meta name="description" content="Full-featured Point of Sale (POS) and Customer Pre-Order system for HERSHE Fresh Drinks & Beverages featuring customer online ordering with WhatsApp payment proof submission, terminal checkout, expense logging, financial reports, and pending order approvals." />
+    <meta property="og:title" content="Remix Remix HERSHE POS Terminal" />
+    <meta property="og:description" content="Full-featured Point of Sale (POS) and Customer Pre-Order system for HERSHE Fresh Drinks & Beverages featuring customer online ordering with WhatsApp payment proof submission, terminal checkout, expense logging, financial reports, and pending order approvals." />
+    <meta name="theme-color" content="#020617" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="HERSHE POS" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // Suppress external browser extension runtime errors (e.g. MetaMask in iframe)
+      (function() {
+        function isExtErr(e) {
+          var str = (e && (e.message || e.reason || (typeof e.reason === 'object' && e.reason.message) || e.toString())) || '';
+          str = String(str).toLowerCase();
+          return str.indexOf('metamask') !== -1 || str.indexOf('ethereum') !== -1 || str.indexOf('failed to connect') !== -1;
+        }
+        window.addEventListener('error', function(ev) {
+          if (isExtErr(ev.error || ev)) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function(ev) {
+          if (isExtErr(ev.reason)) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
+  </head>
+  <body class="bg-slate-950 text-slate-100 overflow-x-hidden antialiased select-none">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

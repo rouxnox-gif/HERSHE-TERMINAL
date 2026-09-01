@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Order": {
+      "title": "Order",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "paymentType": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "discountValue": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "itemsSummary": { "type": "string" }
+      },
+      "required": ["orderId", "date", "time", "paymentType", "totalAmount"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "description": { "type": "string" },
+        "paymentType": { "type": "string" },
+        "amount": { "type": "number" }
+      },
+      "required": ["id", "date", "description", "paymentType", "amount"]
+    },
+    "PendingOrder": {
+      "title": "PendingOrder",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "paymentType": { "type": "string" },
+        "source": { "type": "string" },
+        "itemsSummary": { "type": "string" }
+      },
+      "required": ["orderId", "date", "time", "totalAmount", "paymentType"]
+    },
+    "Shift": {
+      "title": "Shift",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "staffName": { "type": "string" },
+        "role": { "type": "string" },
+        "checkInDate": { "type": "string" },
+        "checkInTime": { "type": "string" },
+        "checkOutTime": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "staffName", "role", "checkInDate", "checkInTime", "status"]
+    }
+  },
+  "firestore": {
+    "products": {
+      "entity": "Product",
+      "schema": {
+        "$ref": "#/entities/Product"
+      },
+      "description": "Store products menu"
+    },
+    "orders": {
+      "entity": "Order",
+      "schema": {
+        "$ref": "#/entities/Order"
+      },
+      "description": "Store sales orders"
+    },
+    "expenses": {
+      "entity": "Expense",
+      "schema": {
+        "$ref": "#/entities/Expense"
+      },
+      "description": "Store expenses"
+    },
+    "pendingOrders": {
+      "entity": "PendingOrder",
+      "schema": {
+        "$ref": "#/entities/PendingOrder"
+      },
+      "description": "Store pending online/addon orders"
+    },
+    "shifts": {
+      "entity": "Shift",
+      "schema": {
+        "$ref": "#/entities/Shift"
+      },
+      "description": "Staff work shifts"
+    },
+    "users/{userId}/terminal_data/{docId}": {
+      "description": "User-isolated terminal store data sync path"
+    },
+    "stores/{pinCode}": {
+      "description": "Store terminal data indexed by 4-digit PIN code"
+    },
+    "pos_store": {
+      "description": "Main POS sync document store"
+    }
+  }
+}

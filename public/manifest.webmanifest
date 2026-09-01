@@ -1,0 +1,19 @@
+{
+  "name": "HERSHE POS - Offline Point of Sale",
+  "short_name": "HERSHE POS",
+  "description": "Production-ready Offline-First POS & Inventory Management System for HERSHE Drinks",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
