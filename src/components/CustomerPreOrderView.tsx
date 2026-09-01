@@ -80,6 +80,7 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   const [currentStoreInfo, setCurrentStoreInfo] = useState<StoreInfoSettings>(storeInfo);
   const [activeStoreId, setActiveStoreId] = useState<string>('');
   const [firestoreProducts, setFirestoreProducts] = useState<Product[] | null>(null);
+  const [firestoreInventory, setFirestoreInventory] = useState<InventoryItem[] | null>(null);
 
   useEffect(() => {
     if (storeInfo) {
@@ -89,13 +90,15 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
 
   useEffect(() => {
     let unsubSettings: (() => void) | null = null;
+    let unsubProducts: (() => void) | null = null;
+    let unsubInventory: (() => void) | null = null;
 
     async function initStoreListeners() {
       // 1. First check URL search parameter for explicit store isolation
       let resolvedId = '';
       if (typeof window !== 'undefined') {
         const urlParams = new URLSearchParams(window.location.search);
-        resolvedId = urlParams.get('store') || '';
+        resolvedId = urlParams.get('store') || urlParams.get('storeId') || urlParams.get('s') || '';
       }
 
       // 2. If not in URL, query repository storeId
@@ -121,22 +124,35 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
               }
             }, (err) => console.warn('[CustomerView] Direct settings listener notice:', err));
 
-            // Fetch store-specific products if available
+            // Real-time store products listener
             const prodsColRef = collection(firestoreDb, 'stores', resolvedId, 'products');
-            getDocs(prodsColRef).then((querySnap) => {
+            unsubProducts = onSnapshot(prodsColRef, (querySnap) => {
               if (!querySnap.empty) {
                 const loaded: Product[] = [];
                 querySnap.forEach((d) => {
                   const pData = d.data() as any;
-                  if (pData?.id && pData?.name) {
-                    loaded.push(pData as Product);
+                  if (pData && !pData.isDeleted && (pData.name || pData.id)) {
+                    loaded.push({ ...pData, id: pData.id || d.id } as Product);
                   }
                 });
                 if (loaded.length > 0) {
                   setFirestoreProducts(loaded);
                 }
               }
-            }).catch((e) => console.warn('[CustomerView] Store products read note:', e));
+            }, (err) => console.warn('[CustomerView] Store products live listener notice:', err));
+
+            // Real-time store inventory listener
+            const invColRef = collection(firestoreDb, 'stores', resolvedId, 'inventory');
+            unsubInventory = onSnapshot(invColRef, (querySnap) => {
+              const loaded: InventoryItem[] = [];
+              querySnap.forEach((d) => {
+                const iData = d.data() as any;
+                if (iData && !iData.isDeleted) {
+                  loaded.push({ ...iData, id: iData.id || d.id } as InventoryItem);
+                }
+              });
+              setFirestoreInventory(loaded);
+            }, (err) => console.warn('[CustomerView] Store inventory live listener notice:', err));
           } catch (e) {
             console.warn('[CustomerView] Listener setup notice:', e);
           }
@@ -148,6 +164,8 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
 
     return () => {
       if (unsubSettings) unsubSettings();
+      if (unsubProducts) unsubProducts();
+      if (unsubInventory) unsubInventory();
     };
   }, []);
 
@@ -261,13 +279,19 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   // Map inventory for stock validation
   const stockMap = useMemo(() => {
     const map = new Map<string, number>();
-    if (inventory) {
-      for (const inv of inventory) {
-        map.set(inv.productName.toLowerCase().trim(), inv.currentStock);
+    const source = firestoreInventory && firestoreInventory.length > 0 ? firestoreInventory : inventory;
+    if (source) {
+      for (const inv of source) {
+        if (inv.productName) {
+          map.set(inv.productName.toLowerCase().trim(), Number(inv.currentStock) || 0);
+        }
+        if (inv.id) {
+          map.set(inv.id.toLowerCase().trim(), Number(inv.currentStock) || 0);
+        }
       }
     }
     return map;
-  }, [inventory]);
+  }, [firestoreInventory, inventory]);
 
   // Clean WhatsApp number (e.g., 673XXXXXXXX)
   const cleanWhatsAppNumber = useMemo(() => {
@@ -299,7 +323,7 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
       }
       return true;
     });
-  }, [products, searchQuery, selectedCategory]);
+  }, [activeProductCatalog, searchQuery, selectedCategory]);
 
   // Calculate cart subtotal
   const cartSubtotal = useMemo(() => {
@@ -322,8 +346,19 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
     await onSaveStoreInfo(updated);
   };
 
+  // Helper to check if a product is sold out
+  const checkIsSoldOut = (product: Product | null): boolean => {
+    if (!product) return false;
+    const byName = stockMap.get(product.name.toLowerCase().trim());
+    if (byName !== undefined) return byName <= 0;
+    const byId = product.id ? stockMap.get(product.id.toLowerCase().trim()) : undefined;
+    if (byId !== undefined) return byId <= 0;
+    return false;
+  };
+
   // Open item customizer
   const handleOpenCustomizer = (product: Product) => {
+    if (checkIsSoldOut(product)) return;
     setCustomizingProduct(product);
     setSelectedCustomAddonIds([]);
     setCustomQty(1);
@@ -349,7 +384,7 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
 
   // Add customized item to cart
   const handleAddCustomizedToCart = () => {
-    if (!customizingProduct || !isPreOrderOpen) return;
+    if (!customizingProduct || !isPreOrderOpen || checkIsSoldOut(customizingProduct)) return;
 
     const base = customizingProduct.price || 0;
     const chosenAddons = activeAddons.filter((a) => selectedCustomAddonIds.includes(a.id));
@@ -403,10 +438,10 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
     setCustomizingProduct(null);
   };
 
-  // Quick add plain item (only if pre-orders are open)
+  // Quick add plain item (only if pre-orders are open and item in stock)
   const handleQuickAdd = (product: Product, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isPreOrderOpen) return;
+    if (!isPreOrderOpen || checkIsSoldOut(product)) return;
 
     const unitPrice = product.price || 0;
     const existingIndex = cart.findIndex(
@@ -888,8 +923,7 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
             </div>
           ) : (
             filteredProducts.map((product) => {
-              const currentStock = stockMap.get(product.name.toLowerCase().trim());
-              const isSoldOut = currentStock !== undefined && currentStock <= 0;
+              const isSoldOut = checkIsSoldOut(product);
               const inCartCount = cart
                 .filter((it) => it.productId === product.id)
                 .reduce((sum, it) => sum + it.qty, 0);
@@ -900,22 +934,28 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
                   onClick={() => !isSoldOut && handleOpenCustomizer(product)}
                   className={`group p-4 rounded-2xl bg-slate-900 border transition flex flex-col justify-between relative overflow-hidden select-none ${
                     isSoldOut
-                      ? 'border-slate-800/40 opacity-60 cursor-not-allowed'
+                      ? 'border-rose-900/30 opacity-60 cursor-not-allowed bg-slate-950/40'
                       : !isPreOrderOpen
                       ? 'border-slate-800 hover:border-slate-700 bg-slate-900 cursor-pointer'
                       : 'border-slate-800 hover:border-emerald-500/50 hover:bg-slate-850 hover:shadow-xl hover:shadow-emerald-500/5 cursor-pointer active:scale-[0.98]'
                   }`}
                 >
-                  {inCartCount > 0 && (
+                  {isSoldOut && (
+                    <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-black text-[10px] uppercase tracking-wider shadow-sm z-10">
+                      Out of Stock
+                    </div>
+                  )}
+
+                  {!isSoldOut && inCartCount > 0 && (
                     <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-[10px] shadow-sm">
                       {inCartCount} in basket
                     </span>
                   )}
 
                   <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-2 pr-16">
                       <div>
-                        <h3 className="font-extrabold text-sm text-white group-hover:text-emerald-300 transition">
+                        <h3 className={`font-extrabold text-sm transition ${isSoldOut ? 'text-slate-400 line-through' : 'text-white group-hover:text-emerald-300'}`}>
                           {product.name}
                         </h3>
                         <span className="text-[10px] text-emerald-400/80 uppercase tracking-wider font-bold">
@@ -932,16 +972,20 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
                   <div className="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold block uppercase">Price</span>
-                      <span className="font-mono font-black text-emerald-400 text-base">
+                      <span className={`font-mono font-black text-base ${isSoldOut ? 'text-slate-500' : 'text-emerald-400'}`}>
                         ${product.price.toFixed(2)}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-1.5">
                       {isSoldOut ? (
-                        <span className="px-2.5 py-1 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-[11px] font-bold">
+                        <button
+                          type="button"
+                          disabled
+                          className="px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/30 text-xs font-bold opacity-80 cursor-not-allowed"
+                        >
                           Sold Out
-                        </span>
+                        </button>
                       ) : !isPreOrderOpen ? (
                         <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 text-[11px] font-bold">
                           Closed
@@ -1161,11 +1205,11 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
 
               <button
                 type="button"
-                disabled={!isPreOrderOpen}
+                disabled={!isPreOrderOpen || checkIsSoldOut(customizingProduct)}
                 onClick={handleAddCustomizedToCart}
                 className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black text-xs transition shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95"
               >
-                {isPreOrderOpen ? 'Add to Basket' : 'Pre-Orders Closed'}
+                {checkIsSoldOut(customizingProduct) ? 'Sold Out' : isPreOrderOpen ? 'Add to Basket' : 'Pre-Orders Closed'}
               </button>
             </div>
           </div>

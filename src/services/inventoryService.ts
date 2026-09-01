@@ -67,8 +67,7 @@ export async function applyInventoryMovement(
     };
     await db.inventoryMovements.put(movementRecord);
 
-    // 4. Enqueue ONLY the inventoryMovement event for cloud synchronization
-    // Authoritative event sourcing: No currentStock snapshot is pushed to cloud
+    // 4. Enqueue inventoryMovement event and updated inventory item for cloud synchronization
     if (options.enqueueSync) {
       await enqueueSyncItem({
         entityType: 'inventoryMovement',
@@ -78,6 +77,23 @@ export async function applyInventoryMovement(
         deviceId: movement.deviceId,
         operationId: `sync-mv-${movement.movementId}`,
       });
+
+      if (targetItem) {
+        const nowIso = new Date().toISOString();
+        const updatedInventoryItem: InventoryItem = {
+          ...targetItem,
+          currentStock: newStock,
+          updatedAt: nowIso,
+        };
+        await enqueueSyncItem({
+          entityType: 'inventoryItem',
+          entityId: targetItem.id,
+          operation: 'UPDATE',
+          payload: updatedInventoryItem,
+          deviceId: movement.deviceId,
+          operationId: `sync-inv-snap-${targetItem.id}`,
+        });
+      }
     }
 
     applied = true;

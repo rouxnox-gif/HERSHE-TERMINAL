@@ -90,11 +90,16 @@ service cloud.firestore {
         allow read, write: if isStoreMember(storeId);
       }
 
+      // Inventory subcollection: Publicly readable for customer pre-order out-of-stock indicators, editable only by store staff/owner
+      match /inventory/{itemId} {
+        allow read: if true;
+        allow write: if isStoreMember(storeId);
+      }
+
       // Transactional & Private Subcollections:
       // /stores/{storeId}/orders/{orderId}
       // /stores/{storeId}/expenses/{expenseId}
       // /stores/{storeId}/inventoryMovements/{movementId}
-      // /stores/{storeId}/inventory/{itemId}
       // /stores/{storeId}/shifts/{shiftId}
       // /stores/{storeId}/distributions/{month}
       match /{subcollection}/{docId} {

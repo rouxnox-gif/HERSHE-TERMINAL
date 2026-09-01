@@ -351,7 +351,7 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
     }, (err) => console.warn('[SyncEngine] Movements listener error:', err));
     activeListeners.push(unsubMovements);
 
-    // 6. Inventory Items listener: Merges item metadata (names, units, thresholds) without wiping movement-derived stock, and processes removals
+    // 6. Inventory Items listener: Merges items and live stock levels from Firestore
     const invCol = collection(firestoreDb, 'stores', storeId, 'inventory');
     const unsubInv = onSnapshot(invCol, async (snapshot) => {
       // Process deletions from snapshot docChanges
@@ -375,16 +375,27 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
           for (const ri of remoteInv) {
             const local = await localDb.inventory.get(ri.id);
             if (!local) {
+              // Check if a local item exists with the exact same product name
+              const allLocal = await localDb.inventory.toArray();
+              const matchedByName = allLocal.find(
+                it => it.productName.toLowerCase().trim() === ri.productName.toLowerCase().trim()
+              );
+              if (matchedByName && matchedByName.id !== ri.id) {
+                await localDb.inventory.delete(matchedByName.id);
+              }
               await localDb.inventory.put(ri);
-            } else if (ri.updatedAt && (!local.updatedAt || ri.updatedAt >= local.updatedAt)) {
-              // Update metadata properties while maintaining current local stock
+            } else if (!local.updatedAt || (ri.updatedAt && ri.updatedAt >= local.updatedAt)) {
+              // Update metadata AND authoritative currentStock from Firestore
               await localDb.inventory.put({
                 ...local,
                 productName: ri.productName || local.productName,
+                currentStock: ri.currentStock !== undefined ? Number(ri.currentStock) : local.currentStock,
                 unit: ri.unit || local.unit,
                 lowStockThreshold: ri.lowStockThreshold ?? local.lowStockThreshold,
                 costPerUnit: ri.costPerUnit ?? local.costPerUnit,
-                updatedAt: ri.updatedAt,
+                lastRestockedDate: ri.lastRestockedDate || local.lastRestockedDate,
+                lastRestockedQty: ri.lastRestockedQty ?? local.lastRestockedQty,
+                updatedAt: ri.updatedAt || new Date().toISOString(),
               });
             }
           }
