@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
+  signInAnonymously,
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut as firebaseSignOut,
@@ -9,10 +10,28 @@ import {
   setPersistence,
   browserLocalPersistence
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { 
+  initializeFirestore, 
+  getFirestore, 
+  Firestore 
+} from 'firebase/firestore';
+import defaultAppletConfig from '../../firebase-applet-config.json';
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// Support VITE_ environment variables (for Cloudflare Pages / external hosting) with fallback to firebase-applet-config.json
+const envApiKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_FIREBASE_API_KEY : undefined;
+const resolvedFirebaseConfig = envApiKey
+  ? {
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || (defaultAppletConfig as any).authDomain,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || (defaultAppletConfig as any).projectId,
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || (defaultAppletConfig as any).storageBucket,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || (defaultAppletConfig as any).messagingSenderId,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID || (defaultAppletConfig as any).appId,
+      firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || (defaultAppletConfig as any).firestoreDatabaseId,
+    }
+  : defaultAppletConfig;
+
+const app = !getApps().length ? initializeApp(resolvedFirebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 
@@ -23,19 +42,29 @@ if (typeof window !== 'undefined') {
   });
 }
 
-const config = firebaseConfig as any;
+const config = resolvedFirebaseConfig as any;
 
-// Always pass firestoreDatabaseId if configured
-export const db = config.firestoreDatabaseId
-  ? getFirestore(app, config.firestoreDatabaseId)
-  : getFirestore(app);
+// Initialize Firestore with auto-detect long polling for robust iframe / network proxy connectivity
+let firestoreInstance: Firestore;
+try {
+  firestoreInstance = config.firestoreDatabaseId
+    ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true }, config.firestoreDatabaseId)
+    : initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+} catch {
+  firestoreInstance = config.firestoreDatabaseId
+    ? getFirestore(app, config.firestoreDatabaseId)
+    : getFirestore(app);
+}
+
+export const db = firestoreInstance;
 
 // Track single-flight initial auth readiness
 let singleFlightAuthPromise: Promise<User | null> | null = null;
 
 /**
  * Ensures Firebase Authentication state is resolved.
- * Returns the active Google-authenticated user, or null if no user is signed in.
+ * If no user is logged in, automatically signs in anonymously so that cloud syncing
+ * and store security rules function seamlessly without requiring human popup interaction.
  * Guaranteed single-flight promise.
  */
 export async function ensureAuth(): Promise<User | null> {
@@ -65,7 +94,18 @@ export async function ensureAuth(): Promise<User | null> {
         });
       }
 
-      return auth.currentUser || null;
+      if (auth.currentUser) {
+        return auth.currentUser;
+      }
+
+      // Automatically sign in anonymously for friction-free POS terminal operations
+      try {
+        const cred = await signInAnonymously(auth);
+        return cred.user;
+      } catch (anonErr) {
+        console.warn('[Firebase] Anonymous authentication notice:', anonErr);
+        return auth.currentUser || null;
+      }
     } catch (err) {
       console.warn('[Firebase] Auth state restoration note:', err);
       return auth.currentUser || null;
@@ -91,7 +131,7 @@ export async function signInWithGoogle(customPrompt: string = 'select_account'):
 }
 
 /**
- * Signs out the currently authenticated Google user.
+ * Signs out the currently authenticated user.
  */
 export async function signOutGoogle(): Promise<void> {
   await firebaseSignOut(auth);
