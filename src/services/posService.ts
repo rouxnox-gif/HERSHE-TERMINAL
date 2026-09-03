@@ -278,6 +278,19 @@ export async function createPendingOrder(params: {
               deviceId,
               operationId: `sync-mv-${movementId}`,
             });
+
+            await enqueueSyncItem({
+              entityType: 'inventoryItem',
+              entityId: matchingInv.id,
+              operation: 'UPDATE',
+              payload: {
+                ...matchingInv,
+                currentStock: newStock,
+                updatedAt: nowIso,
+              },
+              deviceId,
+              operationId: `sync-inv-snap-${matchingInv.id}`,
+            });
           }
         }
       }
@@ -428,8 +441,10 @@ export async function approvePendingOrder(pending: PendingOrder): Promise<Order>
     completedOrder = {
       id: pending.id || pending.orderId,
       orderId: pending.orderId,
-      date: pending.date,
-      time: pending.time,
+      date: approveDate,
+      time: approveTime,
+      originalSubmissionDate: pending.date,
+      originalSubmissionTime: pending.time,
       paymentType: approvedPaymentType,
       subtotal: finalSubtotal,
       discountValue: Math.max(0, finalSubtotal - pending.totalAmount),
@@ -440,7 +455,7 @@ export async function approvePendingOrder(pending: PendingOrder): Promise<Order>
       paymentReceivedDate: approveDate,
       paymentReceivedTime: approveTime,
       paymentReceivedAt: `${approveDate} ${approveTime}`,
-      createdAt: pending.createdAt || nowIso,
+      createdAt: nowIso,
       updatedAt: nowIso,
       deviceId,
       isDeleted: false,
@@ -711,6 +726,31 @@ export async function deleteProduct(productId: string): Promise<void> {
       deviceId,
       operationId: `sync-del-prod-${productId}`,
     });
+  });
+
+  triggerSync();
+}
+
+/**
+ * Clears/deletes all products from menu so owner can start with a fresh slate.
+ */
+export async function clearAllProducts(): Promise<void> {
+  const deviceId = await getOrCreateDeviceId();
+  const allProducts = await db.products.toArray();
+  const activeProducts = allProducts.filter(p => !p.isDeleted);
+
+  await db.transaction('rw', [db.products, db.syncQueue], async () => {
+    for (const prod of activeProducts) {
+      await db.products.update(prod.id, { isDeleted: true, updatedAt: new Date().toISOString() });
+      await enqueueSyncItem({
+        entityType: 'product',
+        entityId: prod.id,
+        operation: 'DELETE',
+        payload: { id: prod.id },
+        deviceId,
+        operationId: `sync-del-prod-${prod.id}-${Date.now()}`,
+      });
+    }
   });
 
   triggerSync();

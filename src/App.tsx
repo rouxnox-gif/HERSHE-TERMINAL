@@ -20,6 +20,7 @@ import {
   approveAllPendingOrders,
   saveProduct,
   deleteProduct,
+  clearAllProducts,
   createExpense,
   deleteExpense,
   deleteOrder,
@@ -307,6 +308,11 @@ export default function App() {
     await deleteProduct(productId);
   };
 
+  // Clear all drinks from catalog so owner can build their own menu
+  const handleClearAllProducts = async () => {
+    await clearAllProducts();
+  };
+
   // Add Expense
   const handleAddExpense = async (newExp: Expense) => {
     await createExpense(newExp);
@@ -540,10 +546,13 @@ export default function App() {
               onSaveNewProduct={handleSaveNewProduct}
               onUpdateProduct={handleUpdateProduct}
               onDeleteProduct={handleDeleteProduct}
+              onClearAllProducts={handleClearAllProducts}
               onChargeOrder={handleChargeOrder}
               currentUserRole={currentUser?.role}
               currentUserName={currentUser?.name}
               activeShiftStaffName={shifts.find(s => s.status === 'active')?.staffName}
+              storeInfo={storeInfo}
+              onSaveStoreInfo={handleSaveStoreInfo}
             />
           )}
 

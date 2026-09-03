@@ -3,7 +3,7 @@ import { Product, InventoryItem, PendingOrder, PaymentTypeConfig, StoreInfoSetti
 import { getBruneiDateString, getBruneiTimeString } from '../data/initialData';
 import { DEFAULT_ADDONS, DEFAULT_STORE_INFO, getStoreId } from '../db/repositories/appSettingsRepo';
 import { db as firestoreDb } from '../lib/firebase';
-import { doc, onSnapshot, collection, getDocs } from 'firebase/firestore';
+import { doc, onSnapshot, collection, getDocs, setDoc } from 'firebase/firestore';
 import {
   ShoppingBag,
   Plus,
@@ -279,14 +279,20 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   // Map inventory for stock validation
   const stockMap = useMemo(() => {
     const map = new Map<string, number>();
-    const source = firestoreInventory && firestoreInventory.length > 0 ? firestoreInventory : inventory;
+    const source = (firestoreInventory && firestoreInventory.length > 0) ? firestoreInventory : (inventory || []);
     if (source) {
       for (const inv of source) {
+        const stockVal = Number(inv.currentStock) || 0;
         if (inv.productName) {
-          map.set(inv.productName.toLowerCase().trim(), Number(inv.currentStock) || 0);
+          const rawName = inv.productName.toLowerCase().trim();
+          map.set(rawName, stockVal);
+          const alphaName = rawName.replace(/[^a-z0-9]/g, '');
+          if (alphaName) {
+            map.set(alphaName, stockVal);
+          }
         }
         if (inv.id) {
-          map.set(inv.id.toLowerCase().trim(), Number(inv.currentStock) || 0);
+          map.set(inv.id.toLowerCase().trim(), stockVal);
         }
       }
     }
@@ -349,10 +355,19 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   // Helper to check if a product is sold out
   const checkIsSoldOut = (product: Product | null): boolean => {
     if (!product) return false;
-    const byName = stockMap.get(product.name.toLowerCase().trim());
+    const rawName = product.name.toLowerCase().trim();
+    const byName = stockMap.get(rawName);
     if (byName !== undefined) return byName <= 0;
+
+    const alphaName = rawName.replace(/[^a-z0-9]/g, '');
+    if (alphaName) {
+      const byAlpha = stockMap.get(alphaName);
+      if (byAlpha !== undefined) return byAlpha <= 0;
+    }
+
     const byId = product.id ? stockMap.get(product.id.toLowerCase().trim()) : undefined;
     if (byId !== undefined) return byId <= 0;
+
     return false;
   };
 
@@ -602,9 +617,83 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
         pickupTime: resolvedPickupTime,
         status: 'pending',
         items: pendingItems,
+        inventoryDeducted: true,
         createdAt: nowIso,
         updatedAt: nowIso,
       };
+
+      // Deduct inventory in Firestore & locally for all items ordered via customer link
+      const storeIdToUse = activeStoreId || (await getStoreId()) || '';
+      const currentInventoryList = (firestoreInventory && firestoreInventory.length > 0) ? firestoreInventory : (inventory || []);
+      const updatedInvList = [...currentInventoryList];
+
+      for (const item of cart) {
+        const cleanName = item.name.toLowerCase().trim();
+        const cleanAlpha = cleanName.replace(/[^a-z0-9]/g, '');
+        const invIndex = updatedInvList.findIndex(
+          (it) =>
+            it.productName.toLowerCase().trim() === cleanName ||
+            (cleanAlpha && it.productName.toLowerCase().trim().replace(/[^a-z0-9]/g, '') === cleanAlpha) ||
+            it.id === item.id
+        );
+
+        if (invIndex !== -1) {
+          const invItem = updatedInvList[invIndex];
+          const qtyToDeduct = Number(item.qty) || 1;
+          const newStock = Math.max(0, invItem.currentStock - qtyToDeduct);
+
+          updatedInvList[invIndex] = {
+            ...invItem,
+            currentStock: newStock,
+            updatedAt: nowIso,
+          };
+
+          if (firestoreDb && storeIdToUse) {
+            try {
+              const invDocRef = doc(firestoreDb, 'stores', storeIdToUse, 'inventory', invItem.id);
+              await setDoc(invDocRef, {
+                ...invItem,
+                currentStock: newStock,
+                updatedAt: nowIso,
+              }, { merge: true });
+
+              const movementId = `mv-${generatedOrderId}-${invItem.id}`;
+              const mvDocRef = doc(firestoreDb, 'stores', storeIdToUse, 'inventoryMovements', movementId);
+              await setDoc(mvDocRef, {
+                movementId,
+                productId: invItem.id,
+                productName: invItem.productName,
+                quantityChange: -qtyToDeduct,
+                type: 'sale',
+                orderId: generatedOrderId,
+                deviceId: 'customer-link',
+                createdAt: nowIso,
+                staffName: `Customer (${name})`,
+                reason: `Customer Pre-Order #${generatedOrderId}`,
+                appliedLocally: true,
+                syncedToFirestore: true,
+              });
+            } catch (invErr) {
+              console.warn('Failed updating inventory on customer order:', invErr);
+            }
+          }
+        }
+      }
+
+      setFirestoreInventory(updatedInvList);
+
+      if (firestoreDb && storeIdToUse) {
+        try {
+          const poDocRef = doc(firestoreDb, 'stores', storeIdToUse, 'pendingOrders', generatedOrderId);
+          await setDoc(poDocRef, {
+            ...newPendingOrder,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          });
+        } catch (poErr) {
+          console.warn('Failed saving customer pending order to Firestore:', poErr);
+        }
+      }
 
       // 1. Submit to POS system & cloud sync
       await onSubmitPreOrder(newPendingOrder);
@@ -934,14 +1023,14 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
                   onClick={() => !isSoldOut && handleOpenCustomizer(product)}
                   className={`group p-4 rounded-2xl bg-slate-900 border transition flex flex-col justify-between relative overflow-hidden select-none ${
                     isSoldOut
-                      ? 'border-rose-900/30 opacity-60 cursor-not-allowed bg-slate-950/40'
+                      ? 'border-rose-900/50 opacity-60 cursor-not-allowed bg-slate-950/60'
                       : !isPreOrderOpen
                       ? 'border-slate-800 hover:border-slate-700 bg-slate-900 cursor-pointer'
                       : 'border-slate-800 hover:border-emerald-500/50 hover:bg-slate-850 hover:shadow-xl hover:shadow-emerald-500/5 cursor-pointer active:scale-[0.98]'
                   }`}
                 >
                   {isSoldOut && (
-                    <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-black text-[10px] uppercase tracking-wider shadow-sm z-10">
+                    <div className="absolute top-2.5 right-2.5 px-3 py-1 rounded-full bg-rose-600/90 text-white border border-rose-400 font-black text-[10px] uppercase tracking-wider shadow-lg shadow-rose-900/30 z-10">
                       Out of Stock
                     </div>
                   )}

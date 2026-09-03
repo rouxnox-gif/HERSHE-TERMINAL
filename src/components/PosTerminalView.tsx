@@ -1,16 +1,10 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Product, CartItem, Order, PaymentMethod, OrderItem, InventoryItem, PaymentTypeConfig } from '../types';
+import { Product, CartItem, Order, PaymentMethod, OrderItem, InventoryItem, PaymentTypeConfig, CustomAddon, StoreInfoSettings } from '../types';
 import { DEFAULT_PAYMENT_CONFIGS } from '../db/repositories/appSettingsRepo';
 import { AddonModal } from './AddonModal';
-import { Search, Plus, Save, Trash2, ShoppingBag, CreditCard, DollarSign, Calendar, Check, Pencil, X, Edit3, AlertTriangle, Boxes } from 'lucide-react';
+import { StoreAddonsModal } from './StoreAddonsModal';
+import { Search, Plus, Save, Trash2, ShoppingBag, CreditCard, DollarSign, Calendar, Check, Pencil, X, Edit3, AlertTriangle, Boxes, Layers } from 'lucide-react';
 import { getBruneiDateString } from '../data/initialData';
-
-const MODAL_DRINKS = [
-  'strawberry splash',
-  'watermelon bliss',
-  'banana bliss',
-  'cookies and cream'
-];
 
 interface PosTerminalViewProps {
   products: Product[];
@@ -19,10 +13,13 @@ interface PosTerminalViewProps {
   onSaveNewProduct: (product: Product) => void;
   onUpdateProduct?: (product: Product) => void;
   onDeleteProduct?: (productId: string) => void;
+  onClearAllProducts?: () => void;
   onChargeOrder: (order: Order) => void;
   currentUserRole?: 'admin' | 'staff';
   currentUserName?: string;
   activeShiftStaffName?: string;
+  storeInfo?: StoreInfoSettings;
+  onSaveStoreInfo?: (info: StoreInfoSettings) => void;
 }
 
 export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
@@ -32,10 +29,13 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   onSaveNewProduct,
   onUpdateProduct,
   onDeleteProduct,
+  onClearAllProducts,
   onChargeOrder,
   currentUserRole,
   currentUserName,
   activeShiftStaffName,
+  storeInfo,
+  onSaveStoreInfo,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState<string>(getBruneiDateString());
@@ -79,10 +79,15 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Store Addons & Clear Menu modal state
+  const [isStoreAddonsOpen, setIsStoreAddonsOpen] = useState(false);
+  const [isClearMenuModalOpen, setIsClearMenuModalOpen] = useState(false);
+
   // Add Drink Modal state
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [newDrinkName, setNewDrinkName] = useState('');
   const [newDrinkPrice, setNewDrinkPrice] = useState('');
+  const [newDrinkCategory, setNewDrinkCategory] = useState('');
 
   // Mobile drawer state
   const [mobileSubTab, setMobileSubTab] = useState<'menu' | 'ticket'>('menu');
@@ -112,25 +117,36 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
   // Handle drink selection to add to ticket
   const handleDrinkClick = (name: string, price: number) => {
-    const cleanName = name.toLowerCase().trim();
-    if (MODAL_DRINKS.includes(cleanName)) {
+    const activeAddons = (storeInfo?.addons || []).filter(a => a.enabled !== false);
+    if (activeAddons.length > 0) {
       setSelectedDrink({ name, price });
       setAddonModalOpen(true);
     } else {
-      addToCart(name, price, false, false);
+      addToCart(name, price, false, false, []);
     }
   };
 
-  const addToCart = (name: string, price: number, protein = false, oat = false) => {
+  const addToCart = (
+    name: string,
+    price: number,
+    protein = false,
+    oat = false,
+    selectedAddons: CustomAddon[] = []
+  ) => {
     setCart(prevCart => {
+      const addonKey = selectedAddons.map(a => a.id).sort().join(',');
       const existing = prevCart.find(
-        item => item.name === name && item.protein === protein && item.oat === oat && Math.abs(item.basePrice - price) < 0.001
+        item => {
+          const itemAddonKey = (item.selectedAddons || []).map(a => a.id).sort().join(',');
+          return item.name === name && itemAddonKey === addonKey && item.protein === protein && item.oat === oat && Math.abs(item.basePrice - price) < 0.001;
+        }
       );
       if (existing) {
         return prevCart.map(item =>
           item.id === existing.id ? { ...item, qty: item.qty + 1 } : item
         );
       } else {
+        const addonNames = selectedAddons.map(a => a.name).join(', ');
         const newItem: CartItem = {
           id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           name,
@@ -138,6 +154,8 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
           qty: 1,
           protein,
           oat,
+          selectedAddons,
+          addonString: addonNames || undefined,
         };
         return [...prevCart, newItem];
       }
@@ -248,6 +266,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   const handleSaveNewModalDrink = () => {
     const name = newDrinkName.trim();
     const price = parseFloat(newDrinkPrice);
+    const category = newDrinkCategory.trim() || 'Menu';
     if (!name || isNaN(price) || price < 0) {
       alert('Please enter a valid drink name and price.');
       return;
@@ -257,10 +276,12 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
       id: `p-modal-${Date.now()}`,
       name,
       price,
+      category,
     };
     onSaveNewProduct(newProd);
     setNewDrinkName('');
     setNewDrinkPrice('');
+    setNewDrinkCategory('');
     setAddModalOpen(false);
   };
 
@@ -268,8 +289,12 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   const subtotal = useMemo(() => {
     return cart.reduce((acc, item) => {
       let addPrice = 0;
-      if (item.protein) addPrice += 2.00;
-      if (item.oat) addPrice += 0.50;
+      if (item.selectedAddons && item.selectedAddons.length > 0) {
+        addPrice = item.selectedAddons.reduce((sum, a) => sum + (a.price || 0), 0);
+      } else {
+        if (item.protein) addPrice += 2.00;
+        if (item.oat) addPrice += 0.50;
+      }
       return acc + (item.basePrice + addPrice) * item.qty;
     }, 0);
   }, [cart]);
@@ -308,18 +333,30 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
     setIsSubmittingOrder(true);
 
     const orderItems: OrderItem[] = cart.map(item => {
-      let addPrice = (item.protein ? 2.00 : 0) + (item.oat ? 0.50 : 0);
+      let addPrice = 0;
+      if (item.selectedAddons && item.selectedAddons.length > 0) {
+        addPrice = item.selectedAddons.reduce((sum, a) => sum + (a.price || 0), 0);
+      } else {
+        if (item.protein) addPrice += 2.00;
+        if (item.oat) addPrice += 0.50;
+      }
       let lineTotal = (item.basePrice + addPrice) * item.qty;
       let itemDiscountShare = subtotal > 0 ? (lineTotal / subtotal) * discountAmount : 0;
       let finalPrice = Math.max(0, lineTotal - itemDiscountShare);
 
-      const addons: string[] = [];
-      if (item.protein) addons.push('With Protein');
-      if (item.oat) addons.push('With Oat');
+      let addonString = 'None';
+      if (item.selectedAddons && item.selectedAddons.length > 0) {
+        addonString = item.selectedAddons.map(a => a.name).join(', ');
+      } else {
+        const legacy: string[] = [];
+        if (item.protein) legacy.push('With Protein');
+        if (item.oat) legacy.push('With Oat');
+        if (legacy.length > 0) addonString = legacy.join(', ');
+      }
 
       return {
         name: item.name,
-        addonString: addons.length > 0 ? addons.join(', ') : 'None',
+        addonString,
         qty: item.qty,
         lineTotal,
         finalPrice: finalPrice,
@@ -399,16 +436,36 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
         >
           {/* Header Row */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-extrabold text-sm text-white tracking-tight">Drink Menu</h3>
               <button
                 onClick={() => setAddModalOpen(true)}
-                className="px-2 py-0.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
                 title="Add a new drink to catalog"
               >
                 <Plus className="w-3 h-3" />
                 <span>Add Drink</span>
               </button>
+              {storeInfo && onSaveStoreInfo && (
+                <button
+                  onClick={() => setIsStoreAddonsOpen(true)}
+                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                  title="Configure store add-ons and modifiers"
+                >
+                  <Layers className="w-3 h-3 text-emerald-400" />
+                  <span>Add-ons ({storeInfo.addons?.length || 0})</span>
+                </button>
+              )}
+              {products.length > 0 && onClearAllProducts && (
+                <button
+                  onClick={() => setIsClearMenuModalOpen(true)}
+                  className="px-2 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 ml-auto sm:ml-0"
+                  title="Clear all drinks to start fresh"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear Menu</span>
+                </button>
+              )}
             </div>
             
             <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 self-start sm:self-auto">
@@ -436,9 +493,39 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
           {/* Compact Product Grid */}
           <div className="flex-1 overflow-y-auto no-scrollbar pr-1 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 content-start items-start min-h-0 py-1">
-            {filteredProducts.length === 0 ? (
+            {products.length === 0 ? (
+              <div className="col-span-full py-12 px-4 text-center bg-slate-950/60 rounded-2xl border border-dashed border-slate-800 flex flex-col items-center justify-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                  <ShoppingBag className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-white">Your Store Menu is Empty</h4>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                    Add your store's dedicated drinks and custom add-ons below!
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={() => setAddModalOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-4 h-4 stroke-[3]" />
+                    <span>Add Drink</span>
+                  </button>
+                  {storeInfo && onSaveStoreInfo && (
+                    <button
+                      onClick={() => setIsStoreAddonsOpen(true)}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                    >
+                      <Layers className="w-4 h-4 text-emerald-400" />
+                      <span>Manage Add-ons</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : filteredProducts.length === 0 ? (
               <div className="col-span-full py-8 text-center text-slate-500 text-xs">
-                No matching drinks found
+                No matching drinks found for "{searchQuery}"
               </div>
             ) : (
               filteredProducts.map(p => {
@@ -573,7 +660,13 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
               </div>
             ) : (
               cart.map(item => {
-                let addPrice = (item.protein ? 2.00 : 0) + (item.oat ? 0.50 : 0);
+                let addPrice = 0;
+                if (item.selectedAddons && item.selectedAddons.length > 0) {
+                  addPrice = item.selectedAddons.reduce((sum, a) => sum + (a.price || 0), 0);
+                } else {
+                  if (item.protein) addPrice += 2.00;
+                  if (item.oat) addPrice += 0.50;
+                }
                 let lineTotal = (item.basePrice + addPrice) * item.qty;
 
                 return (
@@ -583,31 +676,86 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                       <span className="font-mono text-emerald-400">${lineTotal.toFixed(2)}</span>
                     </div>
 
-                    {/* Add-on Chips */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => toggleAddon(item.id, 'protein')}
-                        className={`flex-1 py-1 px-2 rounded-md text-[11px] font-semibold border transition text-center cursor-pointer
-                          ${item.protein 
-                            ? 'bg-amber-600/30 border-amber-500 text-amber-200' 
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                          }
-                        `}
-                      >
-                        + Protein ($2)
-                      </button>
-                      <button
-                        onClick={() => toggleAddon(item.id, 'oat')}
-                        className={`flex-1 py-1 px-2 rounded-md text-[11px] font-semibold border transition text-center cursor-pointer
-                          ${item.oat 
-                            ? 'bg-amber-600/30 border-amber-500 text-amber-200' 
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                          }
-                        `}
-                      >
-                        + Oat ($0.50)
-                      </button>
-                    </div>
+                    {/* Selected Custom Add-ons display */}
+                    {item.selectedAddons && item.selectedAddons.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {item.selectedAddons.map((addon) => (
+                          <span
+                            key={addon.id}
+                            className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+                          >
+                            + {addon.name} (${(addon.price || 0).toFixed(2)})
+                          </span>
+                        ))}
+                      </div>
+                    ) : item.addonString && item.addonString !== 'None' ? (
+                      <div className="text-[10px] text-emerald-400/90 font-medium">
+                        + {item.addonString}
+                      </div>
+                    ) : null}
+
+                    {/* Quick Add-on Chips: If store has custom add-ons configured */}
+                    {storeInfo?.addons && storeInfo.addons.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {storeInfo.addons.filter(a => a.enabled !== false).map((addon) => {
+                          const isSelected = (item.selectedAddons || []).some(a => a.id === addon.id);
+                          return (
+                            <button
+                              key={addon.id}
+                              type="button"
+                              onClick={() => {
+                                setCart(prev => prev.map(cartItem => {
+                                  if (cartItem.id !== item.id) return cartItem;
+                                  const currentSel = cartItem.selectedAddons || [];
+                                  const exists = currentSel.some(a => a.id === addon.id);
+                                  const updatedSel = exists
+                                    ? currentSel.filter(a => a.id !== addon.id)
+                                    : [...currentSel, addon];
+                                  return {
+                                    ...cartItem,
+                                    selectedAddons: updatedSel,
+                                    addonString: updatedSel.map(a => a.name).join(', ') || undefined,
+                                  };
+                                }));
+                              }}
+                              className={`py-0.5 px-2 rounded-md text-[10px] font-semibold border transition text-center cursor-pointer ${
+                                isSelected
+                                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                              }`}
+                            >
+                              + {addon.name} (${(addon.price || 0).toFixed(2)})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      /* Fallback legacy chips if no custom store addons configured yet */
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => toggleAddon(item.id, 'protein')}
+                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-semibold border transition text-center cursor-pointer
+                            ${item.protein 
+                              ? 'bg-amber-600/30 border-amber-500 text-amber-200' 
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                            }
+                          `}
+                        >
+                          + Protein ($2)
+                        </button>
+                        <button
+                          onClick={() => toggleAddon(item.id, 'oat')}
+                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-semibold border transition text-center cursor-pointer
+                            ${item.oat 
+                              ? 'bg-amber-600/30 border-amber-500 text-amber-200' 
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                            }
+                          `}
+                        >
+                          + Oat ($0.50)
+                        </button>
+                      </div>
+                    )}
 
                     {/* Qty Controls */}
                     <div className="flex items-center justify-between pt-1">
@@ -821,26 +969,42 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Drink Name</label>
+                <label className="block text-slate-400 font-semibold mb-1">Drink Name *</label>
                 <input
                   type="text"
+                  required
                   value={newDrinkName}
                   onChange={(e) => setNewDrinkName(e.target.value)}
-                  placeholder="e.g. Taro Milk Tea"
+                  placeholder="e.g. Taro Milk Tea, Avocado Shake, Dragonfruit Juice"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl text-slate-200 text-xs font-semibold focus:outline-none transition"
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Price ($ BND)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newDrinkPrice}
-                  onChange={(e) => setNewDrinkPrice(e.target.value)}
-                  placeholder="5.00"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl text-slate-200 text-xs font-mono font-bold focus:outline-none transition"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Price ($ BND) *</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    required
+                    value={newDrinkPrice}
+                    onChange={(e) => setNewDrinkPrice(e.target.value)}
+                    placeholder="5.00"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl text-slate-200 text-xs font-mono font-bold focus:outline-none transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Category (Optional)</label>
+                  <input
+                    type="text"
+                    value={newDrinkCategory}
+                    onChange={(e) => setNewDrinkCategory(e.target.value)}
+                    placeholder="e.g. Smoothies, Juices"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl text-slate-200 text-xs font-semibold focus:outline-none transition"
+                  />
+                </div>
               </div>
             </div>
 
@@ -869,13 +1033,72 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
         onClose={() => setAddonModalOpen(false)}
         drinkName={selectedDrink?.name || ''}
         basePrice={selectedDrink?.price || 0}
-        onConfirm={(protein, oat) => {
+        availableAddons={storeInfo?.addons || []}
+        onOpenStoreAddons={() => {
+          setAddonModalOpen(false);
+          setIsStoreAddonsOpen(true);
+        }}
+        onConfirm={(protein, oat, selectedAddons) => {
           if (selectedDrink) {
-            addToCart(selectedDrink.name, selectedDrink.price, protein, oat);
+            addToCart(selectedDrink.name, selectedDrink.price, protein, oat, selectedAddons || []);
             setAddonModalOpen(false);
           }
         }}
       />
+
+      {/* Store Addons Manager Modal */}
+      {storeInfo && onSaveStoreInfo && (
+        <StoreAddonsModal
+          isOpen={isStoreAddonsOpen}
+          onClose={() => setIsStoreAddonsOpen(false)}
+          storeInfo={storeInfo}
+          onSaveStoreInfo={onSaveStoreInfo}
+        />
+      )}
+
+      {/* Clear Menu Confirmation Modal */}
+      {isClearMenuModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm text-white">Clear Store Menu?</h3>
+                <p className="text-xs text-slate-400">
+                  This will delete all {products.length} menu items so you can configure your own dedicated store menu.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-800 leading-relaxed">
+              You will be able to build your menu completely fresh from scratch using "+ Add Drink" and configure custom add-ons anytime.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setIsClearMenuModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (onClearAllProducts) {
+                    onClearAllProducts();
+                  }
+                  setIsClearMenuModalOpen(false);
+                }}
+                className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-400 text-white font-black text-xs transition shadow-lg shadow-red-500/20 flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Clear Menu</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MOBILE PAY NOW POP-UP MODAL */}
       {isMobilePayModalOpen && (

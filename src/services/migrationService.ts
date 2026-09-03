@@ -21,11 +21,30 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
   const isMigrated = localStorage.getItem(MIGRATION_FLAG_KEY);
   const deviceId = await getOrCreateDeviceId();
 
-  // Check if DB already has products & inventory
-  const productCount = await db.products.count();
+  // One-time cleanup of default hardcoded menu items so owner has clean dedicated menu
+  const MENU_RESET_KEY = 'hershe_pos_cleared_default_menu_v3';
+  if (!localStorage.getItem(MENU_RESET_KEY)) {
+    try {
+      const defaultIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
+      const allProducts = await db.products.toArray();
+      const defaults = allProducts.filter(p => defaultIds.includes(p.id) && !p.isDeleted);
+      if (defaults.length > 0) {
+        await db.transaction('rw', [db.products, db.syncQueue], async () => {
+          for (const prod of defaults) {
+            await db.products.update(prod.id, { isDeleted: true, updatedAt: new Date().toISOString() });
+          }
+        });
+      }
+      localStorage.setItem(MENU_RESET_KEY, 'true');
+    } catch (e) {
+      console.warn('Failed to clean default products:', e);
+    }
+  }
+
+  // Check if DB already has inventory
   const invCount = await db.inventory.count();
 
-  if (isMigrated && productCount > 0 && invCount > 0) {
+  if (isMigrated && invCount > 0) {
     return; // Already initialized and verified
   }
 
@@ -70,8 +89,6 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
         };
       });
       await db.products.bulkPut(prods);
-    } else if (productCount === 0) {
-      await db.products.bulkPut(INITIAL_PRODUCTS.map(p => ({ ...p, deviceId, updatedAt: new Date().toISOString() })));
     }
 
     // 2. Inventory (Deterministic IDs)

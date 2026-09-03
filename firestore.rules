@@ -90,10 +90,15 @@ service cloud.firestore {
         allow read, write: if isStoreMember(storeId);
       }
 
-      // Inventory subcollection: Publicly readable for customer pre-order out-of-stock indicators, editable only by store staff/owner
+      // Inventory subcollection: Publicly readable and updatable for customer pre-order stock deductions, editable by store staff/owner
       match /inventory/{itemId} {
-        allow read: if true;
-        allow write: if isStoreMember(storeId);
+        allow read, write: if true;
+      }
+
+      // Inventory Movements subcollection: Publicly creatable for customer pre-orders, read/managed by store staff/owner
+      match /inventoryMovements/{movementId} {
+        allow create: if true;
+        allow read, update, delete: if isStoreMember(storeId);
       }
 
       // Transactional & Private Subcollections:

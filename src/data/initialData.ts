@@ -23,16 +23,7 @@ export const getDefaultMonthlyDistribution = (month: string): MonthlyDistributio
   ],
 });
 
-export const INITIAL_PRODUCTS: Product[] = [
-  { id: 'p1', name: 'Strawberry Splash', price: 5.50, category: 'Signature Smoothies' },
-  { id: 'p2', name: 'Watermelon Bliss', price: 5.50, category: 'Signature Smoothies' },
-  { id: 'p3', name: 'Banana Bliss', price: 5.00, category: 'Signature Smoothies' },
-  { id: 'p4', name: 'Cookies and Cream', price: 5.00, category: 'Signature Smoothies' },
-  { id: 'p5', name: 'Beetboost', price: 4.00, category: 'Fresh Pure Juices' },
-  { id: 'p6', name: 'Orange Sunrise', price: 4.00, category: 'Fresh Pure Juices' },
-  { id: 'p7', name: 'Green Detox', price: 4.00, category: 'Fresh Pure Juices' },
-  { id: 'p8', name: 'Gingershot', price: 2.00, category: 'Wellness Shots' },
-];
+export const INITIAL_PRODUCTS: Product[] = [];
 
 // Helper for Brunei current date
 export const getBruneiDateString = (): string => {

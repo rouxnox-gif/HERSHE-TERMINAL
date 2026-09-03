@@ -10,13 +10,7 @@ const PAYMENT_CONFIGS_KEY = 'hershe_payment_configs';
 const HIDDEN_TABS_KEY = 'hershe_hidden_tabs';
 const STORE_INFO_KEY = 'hershe_store_info_settings';
 
-export const DEFAULT_ADDONS: CustomAddon[] = [
-  { id: 'protein', name: 'Protein Scoop (+25g)', price: 2.0, description: 'Whey / Plant isolate protein boost', enabled: true },
-  { id: 'oat', name: 'Oat Milk Sub', price: 0.5, description: 'Creamy barista oat milk alternative', enabled: true },
-  { id: 'chia', name: 'Chia Seeds', price: 0.5, description: 'Superfood fiber & Omega-3 crunch', enabled: true },
-  { id: 'honey', name: 'Raw Wild Honey', price: 0.5, description: 'Pure natural unprocessed sweet drizzle', enabled: true },
-  { id: 'ginger_boost', name: 'Extra Ginger Shot', price: 1.0, description: 'Potent immunity & digestive kick', enabled: true },
-];
+export const DEFAULT_ADDONS: CustomAddon[] = [];
 
 export const DEFAULT_STORE_INFO: StoreInfoSettings = {
   storeName: 'HERSHE Drinks & Juices',

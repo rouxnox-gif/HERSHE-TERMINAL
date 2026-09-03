@@ -29,8 +29,10 @@ export interface CartItem {
   name: string;
   basePrice: number;
   qty: number;
-  protein: boolean;
-  oat: boolean;
+  protein?: boolean;
+  oat?: boolean;
+  selectedAddons?: CustomAddon[];
+  addonString?: string;
   lineTotal?: number;
 }
 
@@ -60,6 +62,8 @@ export interface Order {
   paymentReceivedDate?: string;
   paymentReceivedTime?: string;
   paymentReceivedAt?: string;
+  originalSubmissionDate?: string;
+  originalSubmissionTime?: string;
   createdAt?: string;
   updatedAt?: string;
   deviceId?: string;
