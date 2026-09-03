@@ -534,6 +534,7 @@ export default function App() {
               currentUser={currentUser}
               onSubmitPreOrder={handleCustomerPreOrderSubmit}
               onSaveStoreInfo={handleSaveStoreInfo}
+              onNavigateToTerminal={() => setActiveTab('sales')}
             />
           )}
 

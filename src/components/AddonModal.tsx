@@ -81,6 +81,20 @@ export const AddonModal: React.FC<AddonModalProps> = ({
           )}
         </div>
 
+        {/* Addon / Plain Choice Header */}
+        <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800/80">
+          <span className="text-slate-400 font-bold">Customize Drink Options:</span>
+          {selectedIds.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="text-[11px] text-amber-400 hover:text-amber-300 font-bold transition cursor-pointer"
+            >
+              Reset to Plain
+            </button>
+          )}
+        </div>
+
         {/* Addons List */}
         <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
           {activeAddons.length === 0 ? (
@@ -138,18 +152,29 @@ export const AddonModal: React.FC<AddonModalProps> = ({
           )}
         </div>
 
-        <div className="flex gap-2.5 pt-1">
+        <div className="flex gap-2 pt-1">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition"
+            className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
           >
             Cancel
           </button>
           <button
-            onClick={handleConfirm}
-            className="flex-2 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition shadow-lg shadow-emerald-500/20 active:scale-98"
+            type="button"
+            onClick={() => onConfirm(false, false, [])}
+            className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-xs font-bold transition cursor-pointer text-center"
+            title="Add drink without any add-ons"
           >
-            ADD TO TICKET (${grandTotal.toFixed(2)})
+            Plain (${basePrice.toFixed(2)})
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="flex-1.5 py-2.5 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition shadow-lg shadow-emerald-500/20 active:scale-98 cursor-pointer text-center truncate"
+          >
+            {selectedList.length > 0
+              ? `ADD (+${selectedList.length}) $${grandTotal.toFixed(2)}`
+              : `ADD ($${basePrice.toFixed(2)})`
+            }
           </button>
         </div>
       </div>

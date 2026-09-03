@@ -39,7 +39,8 @@ import {
   CheckSquare,
   Square,
   ExternalLink,
-  Lock
+  Lock,
+  Coffee
 } from 'lucide-react';
 
 interface CustomerPreOrderViewProps {
@@ -51,6 +52,7 @@ interface CustomerPreOrderViewProps {
   currentUser?: UserSession | null;
   onSaveStoreInfo?: (info: StoreInfoSettings) => Promise<void> | void;
   standalone?: boolean;
+  onNavigateToTerminal?: () => void;
 }
 
 interface CartItem {
@@ -76,6 +78,7 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   currentUser,
   onSaveStoreInfo,
   standalone = false,
+  onNavigateToTerminal,
 }) => {
   const [currentStoreInfo, setCurrentStoreInfo] = useState<StoreInfoSettings>(storeInfo);
   const [activeStoreId, setActiveStoreId] = useState<string>('');
@@ -127,18 +130,15 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
             // Real-time store products listener
             const prodsColRef = collection(firestoreDb, 'stores', resolvedId, 'products');
             unsubProducts = onSnapshot(prodsColRef, (querySnap) => {
-              if (!querySnap.empty) {
-                const loaded: Product[] = [];
-                querySnap.forEach((d) => {
-                  const pData = d.data() as any;
-                  if (pData && !pData.isDeleted && (pData.name || pData.id)) {
-                    loaded.push({ ...pData, id: pData.id || d.id } as Product);
-                  }
-                });
-                if (loaded.length > 0) {
-                  setFirestoreProducts(loaded);
+              const loaded: Product[] = [];
+              querySnap.forEach((d) => {
+                const pData = d.data() as any;
+                if (pData && !pData.isDeleted && (pData.name || pData.id)) {
+                  loaded.push({ ...pData, id: pData.id || d.id } as Product);
                 }
-              }
+              });
+              // Always update store products state, including empty list if menu was cleared
+              setFirestoreProducts(loaded);
             }, (err) => console.warn('[CustomerView] Store products live listener notice:', err));
 
             // Real-time store inventory listener
@@ -233,11 +233,11 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
     return allAddons.filter((a) => a.enabled !== false);
   }, [allAddons]);
 
-  // Quick categories
-  const categories = ['All', 'Signature Smoothies', 'Fresh Pure Juices', 'Wellness Shots'];
-
-  // Helper to categorize drinks consistently
+  // Helper to categorize drinks consistently, respecting terminal drink category
   const getProductCategory = (p: Product): string => {
+    if (p.category && p.category.trim()) {
+      return p.category.trim();
+    }
     const name = p.name.toLowerCase().trim();
     if (name.includes('gingershot') || name.includes('ginger shot') || name.includes('wellness') || name === 'gingershot') {
       return 'Wellness Shots';
@@ -252,12 +252,6 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
       name.includes('pure juice')
     ) {
       return 'Fresh Pure Juices';
-    }
-    if (p.category) {
-      if (p.category === 'Detox & Health') {
-        return name.includes('ginger') || name.includes('shot') ? 'Wellness Shots' : 'Fresh Pure Juices';
-      }
-      return p.category;
     }
     return 'Signature Smoothies';
   };
@@ -304,30 +298,56 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
     return currentStoreInfo.whatsappNumber ? currentStoreInfo.whatsappNumber.replace(/[^0-9]/g, '') : '6738881234';
   }, [currentStoreInfo.whatsappNumber]);
 
-  // Filter products by search and category
+  // Active drink catalog reflecting the terminal's drink menu
   const activeProductCatalog = useMemo(() => {
-    return firestoreProducts && firestoreProducts.length > 0 ? firestoreProducts : products;
-  }, [firestoreProducts, products]);
+    // 1. If staff/admin is logged in or previewing within POS terminal session,
+    // directly reflect the terminal's local live product list from usePOSData()
+    if (currentUser && products !== undefined) {
+      return products;
+    }
+
+    // 2. In standalone customer mode or external device:
+    // If Firestore products listener has fired, it is the authoritative store menu (including empty [])
+    if (firestoreProducts !== null) {
+      return firestoreProducts;
+    }
+
+    // 3. Fallback to products prop from terminal
+    return products || [];
+  }, [currentUser, firestoreProducts, products]);
+
+  // Dynamically derived categories reflecting available drinks on the active menu
+  const dynamicCategories = useMemo(() => {
+    if (activeProductCatalog.length === 0) return [];
+    const catSet = new Set<string>();
+    activeProductCatalog.forEach((p) => {
+      const cat = getProductCategory(p);
+      if (cat && cat.trim()) catSet.add(cat.trim());
+    });
+    const unique = Array.from(catSet);
+    if (unique.length <= 1) return [];
+    return ['All', ...unique];
+  }, [activeProductCatalog]);
+
+  // Reset selectedCategory if current selection is no longer valid
+  useEffect(() => {
+    if (selectedCategory !== 'All' && dynamicCategories.length > 0 && !dynamicCategories.includes(selectedCategory)) {
+      setSelectedCategory('All');
+    }
+  }, [dynamicCategories, selectedCategory]);
 
   const filteredProducts = useMemo(() => {
+    if (activeProductCatalog.length === 0) return [];
     return activeProductCatalog.filter((p) => {
       const productCat = getProductCategory(p);
       const matchesSearch =
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        productCat.toLowerCase().includes(searchQuery.toLowerCase());
+        !searchQuery.trim() ||
+        p.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+        productCat.toLowerCase().includes(searchQuery.toLowerCase().trim());
 
       if (!matchesSearch) return false;
-      if (selectedCategory === 'All') return true;
-      if (selectedCategory === 'Signature Smoothies') {
-        return productCat === 'Signature Smoothies';
-      }
-      if (selectedCategory === 'Fresh Pure Juices') {
-        return productCat === 'Fresh Pure Juices';
-      }
-      if (selectedCategory === 'Wellness Shots' || selectedCategory === 'Wellness Shot') {
-        return productCat === 'Wellness Shots';
-      }
-      return true;
+      if (!selectedCategory || selectedCategory === 'All') return true;
+      return productCat.toLowerCase() === selectedCategory.toLowerCase();
     });
   }, [activeProductCatalog, searchQuery, selectedCategory]);
 
@@ -371,9 +391,31 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
     return false;
   };
 
+  // Available customizer addons for currently selected product
+  const availableCustomizerAddons = useMemo(() => {
+    if (!customizingProduct || customizingProduct.allowAddons === false) return [];
+    if (customizingProduct.allowedAddonIds && customizingProduct.allowedAddonIds.length > 0) {
+      return activeAddons.filter((a) => customizingProduct.allowedAddonIds!.includes(a.id));
+    }
+    return activeAddons;
+  }, [customizingProduct, activeAddons]);
+
   // Open item customizer
-  const handleOpenCustomizer = (product: Product) => {
-    if (checkIsSoldOut(product)) return;
+  const handleOpenCustomizer = (product: Product, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (checkIsSoldOut(product) || !isPreOrderOpen) return;
+    
+    // If the drink does not allow add-ons, or store has no applicable add-ons, quick-add directly
+    const hasAddons = product.allowAddons !== false && activeAddons.length > 0;
+    const applicable = (product.allowedAddonIds && product.allowedAddonIds.length > 0)
+      ? activeAddons.filter(a => product.allowedAddonIds!.includes(a.id))
+      : activeAddons;
+
+    if (!hasAddons || applicable.length === 0) {
+      handleQuickAdd(product);
+      return;
+    }
+
     setCustomizingProduct(product);
     setSelectedCustomAddonIds([]);
     setCustomQty(1);
@@ -391,18 +433,18 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
     if (!customizingProduct) return 0;
     const base = customizingProduct.price || 0;
     const addonsTotal = selectedCustomAddonIds.reduce((sum, id) => {
-      const addon = activeAddons.find((a) => a.id === id);
+      const addon = availableCustomizerAddons.find((a) => a.id === id);
       return sum + (addon ? addon.price : 0);
     }, 0);
     return base + addonsTotal;
-  }, [customizingProduct, selectedCustomAddonIds, activeAddons]);
+  }, [customizingProduct, selectedCustomAddonIds, availableCustomizerAddons]);
 
   // Add customized item to cart
   const handleAddCustomizedToCart = () => {
     if (!customizingProduct || !isPreOrderOpen || checkIsSoldOut(customizingProduct)) return;
 
     const base = customizingProduct.price || 0;
-    const chosenAddons = activeAddons.filter((a) => selectedCustomAddonIds.includes(a.id));
+    const chosenAddons = availableCustomizerAddons.filter((a) => selectedCustomAddonIds.includes(a.id));
     const addonsExtra = chosenAddons.reduce((sum, a) => sum + a.price, 0);
     const unitPrice = base + addonsExtra;
     const lineTotal = unitPrice * customQty;
@@ -454,8 +496,8 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   };
 
   // Quick add plain item (only if pre-orders are open and item in stock)
-  const handleQuickAdd = (product: Product, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleQuickAdd = (product: Product, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!isPreOrderOpen || checkIsSoldOut(product)) return;
 
     const unitPrice = product.price || 0;
@@ -921,7 +963,7 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
         </div>
 
         {/* AVAILABLE ADD-ONS SHOWCASE PILL BAR */}
-        {activeAddons.length > 0 && (
+        {activeProductCatalog.length > 0 && activeAddons.length > 0 && (
           <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -955,59 +997,90 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
           </div>
         )}
 
-        {/* SEARCH & CATEGORY BAR */}
-        <div className="space-y-3">
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search juices, smoothies, shakes, protein..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-2xl text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none transition shadow-inner"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        {/* SEARCH & CATEGORY BAR - Displayed only when menu has items */}
+        {activeProductCatalog.length > 0 && (
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search drinks, juices, smoothies..."
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-2xl text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none transition shadow-inner"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Category Pills - Rendered dynamically if more than 1 category exists */}
+            {dynamicCategories.length > 1 && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {dynamicCategories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+                      selectedCategory === cat
+                        ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-
-          {/* Category Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
-                  selectedCategory === cat
-                    ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
 
         {/* PRODUCT MENU GRID */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          {filteredProducts.length === 0 ? (
-            <div className="col-span-full p-12 text-center bg-slate-900/50 rounded-3xl border border-slate-800 space-y-3">
-              <ShoppingBag className="w-10 h-10 mx-auto text-slate-700" />
-              <p className="text-slate-400 font-bold text-sm">No drinks match your search</p>
+          {activeProductCatalog.length === 0 ? (
+            /* Direct reflection when terminal menu has no drinks */
+            <div className="col-span-full py-16 px-6 text-center bg-slate-900/60 rounded-3xl border border-dashed border-slate-800 flex flex-col items-center justify-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center text-slate-400 shadow-inner">
+                <Coffee className="w-7 h-7" />
+              </div>
+              <div className="max-w-md space-y-1.5">
+                <h3 className="text-base sm:text-lg font-extrabold text-white">
+                  Menu Currently Unavailable
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                  There are currently no drinks listed on our customer menu. Please check back shortly or visit our counter in-store!
+                </p>
+              </div>
+              {onNavigateToTerminal && isAdmin && (
+                <button
+                  onClick={onNavigateToTerminal}
+                  className="mt-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>Add Drinks in POS Terminal</span>
+                </button>
+              )}
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            /* Active search or filter returned 0 results */
+            <div className="col-span-full py-12 px-4 text-center bg-slate-900/50 rounded-3xl border border-slate-800 space-y-3">
+              <ShoppingBag className="w-10 h-10 mx-auto text-slate-600" />
+              <p className="text-slate-300 font-bold text-sm">
+                No drinks match "{searchQuery}"
+              </p>
               <button
                 onClick={() => {
                   setSearchQuery('');
                   setSelectedCategory('All');
                 }}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:text-white"
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold hover:text-white border border-slate-700 transition cursor-pointer"
               >
-                Reset Filter
+                Reset Search & Filters
               </button>
             </div>
           ) : (
@@ -1056,6 +1129,19 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
                     <p className="text-[11px] text-slate-400 line-clamp-2">
                       {getProductDescription(product)}
                     </p>
+
+                    {/* Add-on capability tag */}
+                    <div className="pt-0.5">
+                      {product.allowAddons === false ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 font-medium">
+                          Plain Only
+                        </span>
+                      ) : activeAddons.length > 0 ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold">
+                          Add-ons Available
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
@@ -1079,12 +1165,32 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
                         <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 text-[11px] font-bold">
                           Closed
                         </span>
+                      ) : product.allowAddons !== false && activeAddons.length > 0 ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => handleQuickAdd(product, e)}
+                            className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition active:scale-95 cursor-pointer text-[10px] font-bold"
+                            title="Add plain without add-ons"
+                          >
+                            Plain
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenCustomizer(product, e)}
+                            className="p-1.5 px-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 transition active:scale-95 cursor-pointer flex items-center gap-1 font-bold text-xs"
+                            title="Customize drink with add-ons"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span className="text-[11px] font-extrabold">Customize</span>
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"
                           onClick={(e) => handleQuickAdd(product, e)}
                           className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 transition active:scale-95 cursor-pointer flex items-center gap-1 font-bold text-xs"
-                          title="Quick add to basket"
+                          title="Add to basket"
                         >
                           <Plus className="w-4 h-4" />
                           <span className="text-[11px] font-extrabold pr-1">Add</span>
@@ -1217,10 +1323,10 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
                   <span className="text-[10px] text-slate-500">Optional</span>
                 </div>
 
-                {activeAddons.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic p-3 bg-slate-950 rounded-xl">No add-ons available</p>
+                {availableCustomizerAddons.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic p-3 bg-slate-950 rounded-xl">No add-ons available for this drink</p>
                 ) : (
-                  activeAddons.map((addon) => {
+                  availableCustomizerAddons.map((addon) => {
                     const isSelected = selectedCustomAddonIds.includes(addon.id);
                     return (
                       <div

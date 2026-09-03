@@ -61,6 +61,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   // Custom product inputs
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
+  const [customAllowAddons, setCustomAllowAddons] = useState(true);
 
   // Cart / Ticket state
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -70,12 +71,14 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
   // Addon modal state
   const [addonModalOpen, setAddonModalOpen] = useState(false);
-  const [selectedDrink, setSelectedDrink] = useState<{ name: string; price: number } | null>(null);
+  const [selectedDrink, setSelectedDrink] = useState<Product | null>(null);
 
   // Edit Drink Modal state
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editName, setEditName] = useState('');
   const [editPrice, setEditPrice] = useState('');
+  const [editAllowAddons, setEditAllowAddons] = useState(true);
+  const [editSelectedAddonIds, setEditSelectedAddonIds] = useState<string[]>([]);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -88,6 +91,8 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   const [newDrinkName, setNewDrinkName] = useState('');
   const [newDrinkPrice, setNewDrinkPrice] = useState('');
   const [newDrinkCategory, setNewDrinkCategory] = useState('');
+  const [newDrinkAllowAddons, setNewDrinkAllowAddons] = useState(true);
+  const [newDrinkSelectedAddonIds, setNewDrinkSelectedAddonIds] = useState<string[]>([]);
 
   // Mobile drawer state
   const [mobileSubTab, setMobileSubTab] = useState<'menu' | 'ticket'>('menu');
@@ -116,13 +121,23 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   }, [products, searchQuery]);
 
   // Handle drink selection to add to ticket
-  const handleDrinkClick = (name: string, price: number) => {
+  const handleDrinkClick = (product: Product) => {
+    // If the drink has add-ons disabled, directly add plain drink to ticket
+    if (product.allowAddons === false) {
+      addToCart(product.name, product.price, false, false, [], false, product.id);
+      return;
+    }
+
     const activeAddons = (storeInfo?.addons || []).filter(a => a.enabled !== false);
-    if (activeAddons.length > 0) {
-      setSelectedDrink({ name, price });
+    const applicableAddons = (product.allowedAddonIds && product.allowedAddonIds.length > 0)
+      ? activeAddons.filter(a => product.allowedAddonIds!.includes(a.id))
+      : activeAddons;
+
+    if (applicableAddons.length > 0) {
+      setSelectedDrink(product);
       setAddonModalOpen(true);
     } else {
-      addToCart(name, price, false, false, []);
+      addToCart(product.name, product.price, false, false, [], true, product.id);
     }
   };
 
@@ -131,7 +146,9 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
     price: number,
     protein = false,
     oat = false,
-    selectedAddons: CustomAddon[] = []
+    selectedAddons: CustomAddon[] = [],
+    allowAddons = true,
+    productId?: string
   ) => {
     setCart(prevCart => {
       const addonKey = selectedAddons.map(a => a.id).sort().join(',');
@@ -149,11 +166,13 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
         const addonNames = selectedAddons.map(a => a.name).join(', ');
         const newItem: CartItem = {
           id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          productId,
           name,
           basePrice: price,
           qty: 1,
           protein,
           oat,
+          allowAddons,
           selectedAddons,
           addonString: addonNames || undefined,
         };
@@ -196,7 +215,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
       alert('Please enter a valid drink name and price.');
       return;
     }
-    addToCart(name, price, false, false);
+    addToCart(name, price, false, false, [], customAllowAddons);
     setCustomName('');
     setCustomPrice('');
   };
@@ -213,6 +232,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
       id: `p-custom-${Date.now()}`,
       name,
       price,
+      allowAddons: customAllowAddons,
     };
     onSaveNewProduct(newProd);
     setCustomName('');
@@ -225,6 +245,8 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
     setEditingProduct(p);
     setEditName(p.name);
     setEditPrice(p.price.toString());
+    setEditAllowAddons(p.allowAddons !== false);
+    setEditSelectedAddonIds(p.allowedAddonIds || []);
     setIsConfirmingDelete(false);
     setValidationError(null);
   };
@@ -244,6 +266,8 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
         ...editingProduct,
         name,
         price,
+        allowAddons: editAllowAddons,
+        allowedAddonIds: editAllowAddons ? editSelectedAddonIds : [],
       });
     }
     setEditingProduct(null);
@@ -277,11 +301,15 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
       name,
       price,
       category,
+      allowAddons: newDrinkAllowAddons,
+      allowedAddonIds: newDrinkAllowAddons ? newDrinkSelectedAddonIds : [],
     };
     onSaveNewProduct(newProd);
     setNewDrinkName('');
     setNewDrinkPrice('');
     setNewDrinkCategory('');
+    setNewDrinkAllowAddons(true);
+    setNewDrinkSelectedAddonIds([]);
     setAddModalOpen(false);
   };
 
@@ -538,7 +566,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                 return (
                   <div
                     key={p.id}
-                    onClick={() => handleDrinkClick(p.name, p.price)}
+                    onClick={() => handleDrinkClick(p)}
                     className={`p-2 bg-slate-950 hover:bg-slate-800/90 border rounded-lg text-left transition duration-150 flex flex-col justify-between gap-1 group shadow-sm active:scale-98 cursor-pointer relative min-h-[84px] shrink-0
                       ${isOutOfStock 
                         ? 'border-red-500/40 opacity-80 hover:border-red-500' 
@@ -564,23 +592,33 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between gap-1 mt-auto pt-1">
-                      {/* Inventory Stock Pill */}
-                      {hasStockTracking && currentStock !== null ? (
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 ${
-                          isOutOfStock
-                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                            : isLowStock
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-slate-800 text-slate-400 border border-slate-700/60'
-                        }`}>
-                          <span className={`w-1 h-1 rounded-full ${
-                            isOutOfStock ? 'bg-red-400' : isLowStock ? 'bg-amber-400' : 'bg-emerald-400'
-                          }`} />
-                          {currentStock} {invItem.unit === 'shots' ? 'sh' : 'btl'}
-                        </span>
-                      ) : (
-                        <span />
-                      )}
+                      {/* Inventory Stock Pill & Addon Indicator */}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {hasStockTracking && currentStock !== null && (
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 ${
+                            isOutOfStock
+                              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                              : isLowStock
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700/60'
+                          }`}>
+                            <span className={`w-1 h-1 rounded-full ${
+                              isOutOfStock ? 'bg-red-400' : isLowStock ? 'bg-amber-400' : 'bg-emerald-400'
+                            }`} />
+                            {currentStock} {invItem.unit === 'shots' ? 'sh' : 'btl'}
+                          </span>
+                        )}
+
+                        {p.allowAddons === false ? (
+                          <span className="px-1 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-400 text-[8px] font-semibold">
+                            Plain
+                          </span>
+                        ) : (
+                          <span className="px-1 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400/90 text-[8px] font-semibold">
+                            +Add-on
+                          </span>
+                        )}
+                      </div>
 
                       <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 font-mono font-extrabold text-[10px] text-emerald-400 shrink-0">
                         ${p.price.toFixed(2)}
@@ -611,6 +649,18 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                 placeholder="Price $"
                 className="w-16 sm:w-20 px-2 py-1 md:py-0.5 bg-slate-950 border border-slate-800 rounded-lg text-xs md:text-[11px] font-medium text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-slate-700 shrink-0"
               />
+              <button
+                type="button"
+                onClick={() => setCustomAllowAddons(prev => !prev)}
+                className={`px-2 py-1 md:py-0.5 rounded-lg text-[10px] font-bold border transition shrink-0 cursor-pointer ${
+                  customAllowAddons
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                    : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                }`}
+                title={customAllowAddons ? 'Add-ons choice is enabled' : 'Add-ons choice is disabled (plain only)'}
+              >
+                {customAllowAddons ? '+Addons' : 'No Addons'}
+              </button>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <button
@@ -694,8 +744,12 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                       </div>
                     ) : null}
 
-                    {/* Quick Add-on Chips: If store has custom add-ons configured */}
-                    {storeInfo?.addons && storeInfo.addons.length > 0 ? (
+                    {/* Quick Add-on Chips: If drink allows add-ons */}
+                    {item.allowAddons === false ? (
+                      <div className="text-[10px] text-slate-500 italic py-0.5">
+                        Standard drink (no add-ons allowed)
+                      </div>
+                    ) : storeInfo?.addons && storeInfo.addons.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
                         {storeInfo.addons.filter(a => a.enabled !== false).map((addon) => {
                           const isSelected = (item.selectedAddons || []).some(a => a.id === addon.id);
@@ -903,6 +957,95 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                       className="w-full px-3 py-2 bg-slate-950 border border-slate-800 focus:border-sky-500 rounded-xl text-slate-200 text-xs font-mono font-bold focus:outline-none transition"
                     />
                   </div>
+
+                  {/* Add-on Choice Selector */}
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                    <label className="block text-slate-300 font-bold text-xs">Drink Add-ons Choice</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditAllowAddons(true)}
+                        className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition cursor-pointer ${
+                          editAllowAddons
+                            ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="editAllowAddons"
+                          checked={editAllowAddons}
+                          onChange={() => setEditAllowAddons(true)}
+                          className="mt-0.5"
+                        />
+                        <div>
+                          <div className="font-bold text-xs">Allow Add-ons</div>
+                          <div className="text-[10px] text-slate-400">Customer/POS can customize</div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditAllowAddons(false)}
+                        className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition cursor-pointer ${
+                          !editAllowAddons
+                            ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="editAllowAddons"
+                          checked={!editAllowAddons}
+                          onChange={() => setEditAllowAddons(false)}
+                          className="mt-0.5"
+                        />
+                        <div>
+                          <div className="font-bold text-xs">No Add-ons</div>
+                          <div className="text-[10px] text-slate-400">Plain drink only</div>
+                        </div>
+                      </button>
+                    </div>
+
+                    {editAllowAddons && storeInfo?.addons && storeInfo.addons.length > 0 && (
+                      <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400">
+                          <span>Specific Add-ons allowed:</span>
+                          <span className="text-[10px] text-slate-500">
+                            {editSelectedAddonIds.length === 0 ? 'All store add-ons' : `${editSelectedAddonIds.length} selected`}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-1">
+                          {storeInfo.addons.filter(a => a.enabled !== false).map(addon => {
+                            const isChecked = editSelectedAddonIds.length === 0 || editSelectedAddonIds.includes(addon.id);
+                            return (
+                              <button
+                                key={addon.id}
+                                type="button"
+                                onClick={() => {
+                                  if (editSelectedAddonIds.length === 0) {
+                                    const allActiveIds = storeInfo.addons!.filter(a => a.enabled !== false).map(a => a.id);
+                                    setEditSelectedAddonIds(allActiveIds.filter(id => id !== addon.id));
+                                  } else if (editSelectedAddonIds.includes(addon.id)) {
+                                    setEditSelectedAddonIds(prev => prev.filter(id => id !== addon.id));
+                                  } else {
+                                    setEditSelectedAddonIds(prev => [...prev, addon.id]);
+                                  }
+                                }}
+                                className={`px-2 py-1 rounded text-[10px] font-bold border transition cursor-pointer ${
+                                  isChecked
+                                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                                    : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700'
+                                }`}
+                              >
+                                {isChecked ? '✓ ' : '+ '}{addon.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Modal Actions */}
@@ -1006,6 +1149,96 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Add-on Choices for New Drink */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                <label className="block text-slate-300 font-bold text-xs">Add-on Options Choice *</label>
+                <p className="text-[11px] text-slate-400">Choose if you want to put add-on choices for this drink:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewDrinkAllowAddons(true)}
+                    className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition cursor-pointer ${
+                      newDrinkAllowAddons
+                        ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="newDrinkAllowAddons"
+                      checked={newDrinkAllowAddons}
+                      onChange={() => setNewDrinkAllowAddons(true)}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-bold text-xs">Put Add-ons</div>
+                      <div className="text-[10px] text-slate-400">Allow toppings & extras</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewDrinkAllowAddons(false)}
+                    className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition cursor-pointer ${
+                      !newDrinkAllowAddons
+                        ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="newDrinkAllowAddons"
+                      checked={!newDrinkAllowAddons}
+                      onChange={() => setNewDrinkAllowAddons(false)}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-bold text-xs">No Add-ons</div>
+                      <div className="text-[10px] text-slate-400">Plain drink only</div>
+                    </div>
+                  </button>
+                </div>
+
+                {newDrinkAllowAddons && storeInfo?.addons && storeInfo.addons.length > 0 && (
+                  <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span>Specific Add-ons allowed:</span>
+                      <span className="text-[10px] text-slate-500">
+                        {newDrinkSelectedAddonIds.length === 0 ? 'All store add-ons' : `${newDrinkSelectedAddonIds.length} selected`}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-1">
+                      {storeInfo.addons.filter(a => a.enabled !== false).map(addon => {
+                        const isChecked = newDrinkSelectedAddonIds.length === 0 || newDrinkSelectedAddonIds.includes(addon.id);
+                        return (
+                          <button
+                            key={addon.id}
+                            type="button"
+                            onClick={() => {
+                              if (newDrinkSelectedAddonIds.length === 0) {
+                                const allActiveIds = storeInfo.addons!.filter(a => a.enabled !== false).map(a => a.id);
+                                setNewDrinkSelectedAddonIds(allActiveIds.filter(id => id !== addon.id));
+                              } else if (newDrinkSelectedAddonIds.includes(addon.id)) {
+                                setNewDrinkSelectedAddonIds(prev => prev.filter(id => id !== addon.id));
+                              } else {
+                                setNewDrinkSelectedAddonIds(prev => [...prev, addon.id]);
+                              }
+                            }}
+                            className={`px-2 py-1 rounded text-[10px] font-bold border transition cursor-pointer ${
+                              isChecked
+                                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                                : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700'
+                            }`}
+                          >
+                            {isChecked ? '✓ ' : '+ '}{addon.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
@@ -1033,14 +1266,26 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
         onClose={() => setAddonModalOpen(false)}
         drinkName={selectedDrink?.name || ''}
         basePrice={selectedDrink?.price || 0}
-        availableAddons={storeInfo?.addons || []}
+        availableAddons={
+          selectedDrink?.allowedAddonIds && selectedDrink.allowedAddonIds.length > 0
+            ? (storeInfo?.addons || []).filter(a => selectedDrink.allowedAddonIds!.includes(a.id))
+            : (storeInfo?.addons || [])
+        }
         onOpenStoreAddons={() => {
           setAddonModalOpen(false);
           setIsStoreAddonsOpen(true);
         }}
         onConfirm={(protein, oat, selectedAddons) => {
           if (selectedDrink) {
-            addToCart(selectedDrink.name, selectedDrink.price, protein, oat, selectedAddons || []);
+            addToCart(
+              selectedDrink.name,
+              selectedDrink.price,
+              protein,
+              oat,
+              selectedAddons || [],
+              selectedDrink.allowAddons !== false,
+              selectedDrink.id
+            );
             setAddonModalOpen(false);
           }
         }}

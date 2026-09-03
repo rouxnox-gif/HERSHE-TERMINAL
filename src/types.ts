@@ -19,6 +19,8 @@ export interface Product {
   name: string;
   price: number;
   category?: string;
+  allowAddons?: boolean; // Choices: true (allow add-ons / modifiers) | false (no add-ons)
+  allowedAddonIds?: string[]; // Optional specific allowed add-on IDs
   updatedAt?: string;
   deviceId?: string;
   isDeleted?: boolean;
@@ -26,11 +28,13 @@ export interface Product {
 
 export interface CartItem {
   id: string;
+  productId?: string;
   name: string;
   basePrice: number;
   qty: number;
   protein?: boolean;
   oat?: boolean;
+  allowAddons?: boolean;
   selectedAddons?: CustomAddon[];
   addonString?: string;
   lineTotal?: number;
