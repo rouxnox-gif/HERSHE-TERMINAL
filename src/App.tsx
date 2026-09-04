@@ -593,8 +593,6 @@ export default function App() {
               onUpdateInventory={handleUpdateInventory}
               currentUserRole={currentUser?.role}
               currentUserName={currentUser?.name || 'Admin'}
-              onSaveProduct={handleSaveNewProduct}
-              onDeleteProduct={handleDeleteProduct}
               onNavigateToTerminal={() => setActiveTab('sales')}
             />
           )}

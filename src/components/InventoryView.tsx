@@ -38,8 +38,6 @@ interface InventoryViewProps {
   currentUserName?: string;
   onDeleteLog?: (logId: string) => void;
   onClearLogs?: (logIds?: string[]) => void;
-  onSaveProduct?: (product: Product) => void;
-  onDeleteProduct?: (productId: string) => void;
   onNavigateToTerminal?: () => void;
 }
 
@@ -53,8 +51,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   currentUserName = 'Admin',
   onDeleteLog,
   onClearLogs,
-  onSaveProduct,
-  onDeleteProduct,
   onNavigateToTerminal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,6 +100,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   };
 
   const todayStr = getBruneiDateString();
+
+  // Available drinks on Drink Menu that are NOT yet tracked in inventory
+  const availableDrinksForInventory = useMemo(() => {
+    const tracked = new Set(inventory.map(it => it.productName.toLowerCase().trim()));
+    return products.filter(p => !tracked.has(p.name.toLowerCase().trim()));
+  }, [products, inventory]);
 
   // Helper map of product prices
   const productPriceMap = useMemo(() => {
@@ -319,23 +321,40 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     showToast(`Deducted -${qty} ${spoilageModalItem.unit} for ${spoilageModalItem.productName} (${spoilageReason})`);
   };
 
-  // Create New Tracked Item
+  // Create New Tracked Item (Only from available drinks on Drink Menu)
   const handleCreateNewTrackedItem = () => {
     const name = newProductName.trim();
-    const initialStock = parseInt(newCurrentStock, 10) || 0;
-    const threshold = parseInt(newThreshold, 10) || 5;
+    const initialStock = parseInt(newCurrentStock, 10);
+    const threshold = parseInt(newThreshold, 10);
     const cost = parseFloat(newCost) || undefined;
     const unit = newUnit.trim() || 'bottles';
 
     if (!name) {
-      showToast('Please enter or select a product name.');
+      showToast('Please select an available drink from the Drink Menu.');
+      return;
+    }
+
+    // Verify the drink exists on the Drink Menu
+    const matchedProduct = products.find(p => p.name.toLowerCase().trim() === name.toLowerCase().trim());
+    if (!matchedProduct) {
+      showToast(`"${name}" is not on the Drink Menu. Only drinks from the Drink Menu can be tracked.`);
       return;
     }
 
     // Check if already tracked
     const existing = inventory.find(it => it.productName.toLowerCase().trim() === name.toLowerCase().trim());
     if (existing) {
-      showToast(`"${name}" is already in inventory!`);
+      showToast(`"${matchedProduct.name}" is already being tracked in inventory!`);
+      return;
+    }
+
+    if (isNaN(initialStock) || initialStock < 0) {
+      showToast('Please enter a valid non-negative initial stock count.');
+      return;
+    }
+
+    if (isNaN(threshold) || threshold < 0) {
+      showToast('Please enter a valid non-negative low stock alert threshold.');
       return;
     }
 
@@ -344,11 +363,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
     const newItem: InventoryItem = {
       id: `inv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      productName: name,
+      productName: matchedProduct.name,
       currentStock: initialStock,
       unit,
       lowStockThreshold: threshold,
-      costPerUnit: cost,
+      costPerUnit: cost || (Math.round(matchedProduct.price * 0.4 * 100) / 100),
       lastRestockedDate: date,
       lastRestockedQty: initialStock,
     };
@@ -358,28 +377,20 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       timestamp: new Date().toISOString(),
       date,
       time,
-      productName: name,
+      productName: matchedProduct.name,
       type: 'restock',
       quantityChange: initialStock,
       balanceAfter: initialStock,
-      reason: 'Initial stock intake',
+      reason: 'Initial inventory tracking intake',
       staffName: currentUserName,
     };
 
     onUpdateInventory([newItem, ...inventory], [initialLog, ...inventoryLogs]);
-    if (onSaveProduct) {
-      const estimatedPrice = cost ? Math.round(cost * 2.5 * 100) / 100 : 4.00;
-      onSaveProduct({
-        id: `prod-${Date.now()}`,
-        name: name,
-        price: estimatedPrice,
-        allowAddons: true,
-      });
-    }
     setNewItemModalOpen(false);
     setNewProductName('');
     setNewCurrentStock('20');
-    showToast(`Added "${name}" to inventory & terminal menu (${initialStock} ${unit})`);
+    setNewCost('');
+    showToast(`Added "${matchedProduct.name}" to inventory checking (${initialStock} ${unit})`);
   };
 
   // Edit Item Stock & Settings
@@ -459,20 +470,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const updatedInv = inventory.filter(it => it.id !== itemId);
     onUpdateInventory(updatedInv, inventoryLogs);
 
-    if (onDeleteProduct) {
-      const matchingProd = products.find(p =>
-        p.id === itemId.replace(/^inv-/, '') ||
-        p.name.toLowerCase().trim() === itemName.toLowerCase().trim()
-      );
-      if (matchingProd) {
-        onDeleteProduct(matchingProd.id);
-      }
-    }
-
     setEditingItem(null);
     setIsConfirmingEditDelete(false);
     setEditModalError(null);
-    showToast(`Removed "${itemName}" from inventory and menu`);
+    showToast(`Removed "${itemName}" from inventory checking`);
   };
 
   // Filtered Logs for display
@@ -682,11 +683,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </button>
 
           <button
-            onClick={() => setNewItemModalOpen(true)}
+            onClick={() => {
+              if (availableDrinksForInventory.length > 0 && !newProductName) {
+                setNewProductName(availableDrinksForInventory[0].name);
+                setNewCost((Math.round(availableDrinksForInventory[0].price * 0.4 * 100) / 100).toString());
+              }
+              setNewItemModalOpen(true);
+            }}
             className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20 active:scale-95"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
-            <span>+ Add New Item</span>
+            <span>+ Add Item to Inventory</span>
           </button>
         </div>
       </div>
@@ -752,32 +759,64 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/5">
             <Boxes className="w-8 h-8" />
           </div>
-          <div className="space-y-1.5 max-w-md">
-            <h3 className="text-lg sm:text-xl font-black text-white tracking-tight">
-              No Drink Menu Available
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-              Inventory directly reflects the active drink menu in the terminal. When there is no menu available, inventory is none.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 pt-2 flex-wrap justify-center">
-            {onNavigateToTerminal && (
-              <button
-                onClick={onNavigateToTerminal}
-                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
-              >
-                <Boxes className="w-4 h-4" />
-                <span>Open POS Terminal & Add Drinks</span>
-              </button>
-            )}
-            <button
-              onClick={() => setNewItemModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-2 cursor-pointer active:scale-95"
-            >
-              <Plus className="w-4 h-4 text-emerald-400" />
-              <span>Add Drink Here</span>
-            </button>
-          </div>
+          {products.length === 0 ? (
+            <>
+              <div className="space-y-1.5 max-w-md">
+                <h3 className="text-lg sm:text-xl font-black text-white tracking-tight">
+                  No Drink Menu Available
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                  Inventory reflects the active drink menu in the terminal. When there is no menu available, inventory is also none. Drinks must be added on the Drink Menu in the POS Terminal first (Admin only).
+                </p>
+              </div>
+              <div className="flex items-center gap-3 pt-2 flex-wrap justify-center">
+                {onNavigateToTerminal && (
+                  <button
+                    onClick={onNavigateToTerminal}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <Boxes className="w-4 h-4" />
+                    <span>Open POS Terminal & Add Drinks</span>
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5 max-w-md">
+                <h3 className="text-lg sm:text-xl font-black text-white tracking-tight">
+                  No Drinks Tracked in Inventory Yet
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                  You have {products.length} drink(s) available on your Drink Menu. Add them to inventory checking to track stock balances and physical counts.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 pt-2 flex-wrap justify-center">
+                <button
+                  onClick={() => {
+                    if (availableDrinksForInventory.length > 0) {
+                      setNewProductName(availableDrinksForInventory[0].name);
+                      setNewCost((Math.round(availableDrinksForInventory[0].price * 0.4 * 100) / 100).toString());
+                    }
+                    setNewItemModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>Track Available Drink</span>
+                </button>
+                {onNavigateToTerminal && (
+                  <button
+                    onClick={onNavigateToTerminal}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <Boxes className="w-4 h-4 text-emerald-400" />
+                    <span>View Drink Menu in Terminal</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -1456,7 +1495,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       )}
 
-      {/* TRACK NEW DRINK MODAL */}
+      {/* TRACK AVAILABLE DRINK IN INVENTORY MODAL */}
       {newItemModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-5 sm:p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -1465,9 +1504,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <Plus className="w-5 h-5 stroke-[3]" />
                 </div>
-                <h3 className="font-extrabold text-white text-base">
-                  Track New Drink / Beverage
-                </h3>
+                <div>
+                  <h3 className="font-extrabold text-white text-base">
+                    Track Drink in Inventory
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Add an available drink from your Drink Menu to inventory checking
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setNewItemModalOpen(false)}
@@ -1477,102 +1521,170 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </button>
             </div>
 
-            <div className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  Product Name
-                </label>
-                {/* Select or type */}
-                <input
-                  type="text"
-                  list="available-products-list"
-                  value={newProductName}
-                  onChange={(e) => setNewProductName(e.target.value)}
-                  placeholder="e.g. Strawberry Splash, Ginger Juice, etc."
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-                <datalist id="available-products-list">
-                  {products.map(p => (
-                    <option key={p.id} value={p.name} />
-                  ))}
-                </datalist>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    Initial Stock Count
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={newCurrentStock}
-                    onChange={(e) => setNewCurrentStock(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-emerald-400 font-bold focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    Unit Type
-                  </label>
-                  <select
-                    value={newUnit}
-                    onChange={(e) => setNewUnit(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none cursor-pointer"
+            {products.length === 0 ? (
+              <div className="py-6 px-4 text-center space-y-3 bg-slate-950 rounded-xl border border-dashed border-slate-800">
+                <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                  No drinks available on the Drink Menu yet.
+                </p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Only the Drink Menu is allowed to add new drinks. Please create drinks on the Drink Menu in the POS Terminal first.
+                </p>
+                {onNavigateToTerminal && (
+                  <button
+                    onClick={() => {
+                      setNewItemModalOpen(false);
+                      onNavigateToTerminal();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
                   >
-                    <option value="bottles">bottles</option>
-                    <option value="shots">shots</option>
-                    <option value="cups">cups</option>
-                    <option value="cans">cans</option>
-                    <option value="packs">packs</option>
-                  </select>
+                    Go to Drink Menu (POS Terminal)
+                  </button>
+                )}
+              </div>
+            ) : availableDrinksForInventory.length === 0 ? (
+              <div className="py-6 px-4 text-center space-y-3 bg-slate-950 rounded-xl border border-dashed border-slate-800">
+                <p className="text-xs text-emerald-300 font-semibold leading-relaxed">
+                  All {products.length} drink(s) on your Drink Menu are already tracked in inventory!
+                </p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  To track a new beverage, add it to the Drink Menu first (in the POS terminal).
+                </p>
+                <div className="flex justify-center gap-2 pt-1">
+                  <button
+                    onClick={() => setNewItemModalOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  {onNavigateToTerminal && (
+                    <button
+                      onClick={() => {
+                        setNewItemModalOpen(false);
+                        onNavigateToTerminal();
+                      }}
+                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+                    >
+                      Go to Drink Menu
+                    </button>
+                  )}
                 </div>
               </div>
+            ) : (
+              <>
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      Select Available Drink from Menu *
+                    </label>
+                    <select
+                      value={newProductName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setNewProductName(val);
+                        const match = products.find(p => p.name === val);
+                        if (match) {
+                          setNewCost((Math.round(match.price * 0.4 * 100) / 100).toString());
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                    >
+                      <option value="">-- Choose a drink ({availableDrinksForInventory.length} available) --</option>
+                      {availableDrinksForInventory.map(p => (
+                        <option key={p.id} value={p.name}>
+                          {p.name} (BND ${p.price.toFixed(2)})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      * Only drinks already existing on the Drink Menu can be added for inventory checking.
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    Low Stock Alert
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={newThreshold}
-                    onChange={(e) => setNewThreshold(e.target.value)}
-                    placeholder="e.g. 5"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-amber-400 font-bold focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    Cost per Unit ($)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={newCost}
-                    onChange={(e) => setNewCost(e.target.value)}
-                    placeholder="e.g. 1.80"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Initial Stock Count
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={newCurrentStock}
+                        onChange={(e) => setNewCurrentStock(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-emerald-400 font-bold focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Unit Type
+                      </label>
+                      <select
+                        value={newUnit}
+                        onChange={(e) => setNewUnit(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none cursor-pointer"
+                      >
+                        <option value="bottles">bottles</option>
+                        <option value="shots">shots</option>
+                        <option value="cups">cups</option>
+                        <option value="cans">cans</option>
+                        <option value="packs">packs</option>
+                      </select>
+                    </div>
+                  </div>
 
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => setNewItemModalOpen(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateNewTrackedItem}
-                className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition cursor-pointer shadow-lg shadow-emerald-500/20"
-              >
-                Add to Inventory
-              </button>
-            </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Low Stock Alert
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={newThreshold}
+                        onChange={(e) => setNewThreshold(e.target.value)}
+                        placeholder="e.g. 5"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-amber-400 font-bold focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Cost per Unit ($)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newCost}
+                        onChange={(e) => setNewCost(e.target.value)}
+                        placeholder="e.g. 1.80"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px] text-slate-400 flex items-start gap-2">
+                    <span className="text-emerald-400 text-xs">ℹ️</span>
+                    <span>
+                      Adding this item only enables inventory stock checking. It does not add or modify anything on the Drink Menu.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => setNewItemModalOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateNewTrackedItem}
+                    disabled={!newProductName}
+                    className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black text-xs transition cursor-pointer shadow-lg shadow-emerald-500/20"
+                  >
+                    Add to Inventory
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

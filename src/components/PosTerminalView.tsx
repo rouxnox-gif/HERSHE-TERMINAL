@@ -222,6 +222,10 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
   // Save Custom Drink to Menu Catalog
   const handleSaveCustomToMenu = () => {
+    if (currentUserRole === 'staff') {
+      alert('Staff accounts are not permitted to add drinks to the Drink Menu. Only Admin can manage the Drink Menu.');
+      return;
+    }
     const name = customName.trim();
     const price = parseFloat(customPrice);
     if (!name || isNaN(price) || price < 0) {
@@ -288,6 +292,10 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
   // Save New Drink via Modal
   const handleSaveNewModalDrink = () => {
+    if (currentUserRole === 'staff') {
+      alert('Staff accounts are not permitted to add drinks to the Drink Menu. Only Admin can manage the Drink Menu.');
+      return;
+    }
     const name = newDrinkName.trim();
     const price = parseFloat(newDrinkPrice);
     const category = newDrinkCategory.trim() || 'Menu';
@@ -466,33 +474,37 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-extrabold text-sm text-white tracking-tight">Drink Menu</h3>
-              <button
-                onClick={() => setAddModalOpen(true)}
-                className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
-                title="Add a new drink to catalog"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Add Drink</span>
-              </button>
-              {storeInfo && onSaveStoreInfo && (
-                <button
-                  onClick={() => setIsStoreAddonsOpen(true)}
-                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
-                  title="Configure store add-ons and modifiers"
-                >
-                  <Layers className="w-3 h-3 text-emerald-400" />
-                  <span>Add-ons ({storeInfo.addons?.length || 0})</span>
-                </button>
-              )}
-              {products.length > 0 && onClearAllProducts && (
-                <button
-                  onClick={() => setIsClearMenuModalOpen(true)}
-                  className="px-2 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 ml-auto sm:ml-0"
-                  title="Clear all drinks to start fresh"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  <span>Clear Menu</span>
-                </button>
+              {currentUserRole !== 'staff' && (
+                <>
+                  <button
+                    onClick={() => setAddModalOpen(true)}
+                    className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                    title="Add a new drink to catalog"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Drink</span>
+                  </button>
+                  {storeInfo && onSaveStoreInfo && (
+                    <button
+                      onClick={() => setIsStoreAddonsOpen(true)}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                      title="Configure store add-ons and modifiers"
+                    >
+                      <Layers className="w-3 h-3 text-emerald-400" />
+                      <span>Add-ons ({storeInfo.addons?.length || 0})</span>
+                    </button>
+                  )}
+                  {products.length > 0 && onClearAllProducts && (
+                    <button
+                      onClick={() => setIsClearMenuModalOpen(true)}
+                      className="px-2 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 ml-auto sm:ml-0"
+                      title="Clear all drinks to start fresh"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Clear Menu</span>
+                    </button>
+                  )}
+                </>
               )}
             </div>
             
@@ -529,27 +541,31 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                 <div>
                   <h4 className="font-bold text-sm text-white">Your Store Menu is Empty</h4>
                   <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                    Add your store's dedicated drinks and custom add-ons below!
+                    {currentUserRole === 'staff'
+                      ? 'No drinks are currently available on the Drink Menu. Staff accounts cannot add new drinks. Please contact an admin or manager.'
+                      : "Add your store's dedicated drinks and custom add-ons below!"}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                  <button
-                    onClick={() => setAddModalOpen(true)}
-                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95"
-                  >
-                    <Plus className="w-4 h-4 stroke-[3]" />
-                    <span>Add Drink</span>
-                  </button>
-                  {storeInfo && onSaveStoreInfo && (
+                {currentUserRole !== 'staff' && (
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                     <button
-                      onClick={() => setIsStoreAddonsOpen(true)}
-                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                      onClick={() => setAddModalOpen(true)}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95"
                     >
-                      <Layers className="w-4 h-4 text-emerald-400" />
-                      <span>Manage Add-ons</span>
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>Add Drink</span>
                     </button>
-                  )}
-                </div>
+                    {storeInfo && onSaveStoreInfo && (
+                      <button
+                        onClick={() => setIsStoreAddonsOpen(true)}
+                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                      >
+                        <Layers className="w-4 h-4 text-emerald-400" />
+                        <span>Manage Add-ons</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ) : filteredProducts.length === 0 ? (
               <div className="col-span-full py-8 text-center text-slate-500 text-xs">
@@ -670,14 +686,16 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
               >
                 + Ticket
               </button>
-              <button
-                onClick={handleSaveCustomToMenu}
-                className="flex-1 sm:flex-none px-2.5 py-1 md:py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs md:text-[11px] transition whitespace-nowrap flex items-center justify-center gap-1 cursor-pointer"
-                title="Save to Drink Menu catalog for future use"
-              >
-                <Save className="w-3 h-3 text-emerald-400" />
-                Save Menu
-              </button>
+              {currentUserRole !== 'staff' && (
+                <button
+                  onClick={handleSaveCustomToMenu}
+                  className="flex-1 sm:flex-none px-2.5 py-1 md:py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs md:text-[11px] transition whitespace-nowrap flex items-center justify-center gap-1 cursor-pointer"
+                  title="Save to Drink Menu catalog for future use"
+                >
+                  <Save className="w-3 h-3 text-emerald-400" />
+                  Save Menu
+                </button>
+              )}
             </div>
           </div>
         </div>
