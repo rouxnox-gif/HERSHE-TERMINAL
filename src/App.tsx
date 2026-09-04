@@ -29,13 +29,15 @@ import {
   deleteShift,
   clearAllShifts,
   saveDistribution,
-  resetDatabaseToDefaults
+  resetDatabaseToDefaults,
+  reconcileInventoryWithProducts
 } from './services/posService';
 import { applyInventoryMovement } from './services/inventoryService';
 import { saveInventoryItem, deleteInventoryItem } from './db/repositories/inventoryRepo';
 import { getOrCreateDeviceId, saveStoreInfoSettings } from './db/repositories/appSettingsRepo';
 import { triggerSync, startRealtimeSync } from './services/syncEngine';
 import { subscribeToFirebaseSync, getStoredPinCode } from './utils/firebaseSync';
+import { isPreOrder } from './utils/orderUtils';
 import { initAuth } from './lib/firebase';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
@@ -194,6 +196,20 @@ export default function App() {
     return inventory.filter(it => it.currentStock <= it.lowStockThreshold).length;
   }, [inventory]);
 
+  // Separate pre-orders and pending approvals counters
+  const { preOrdersCount, pendingApprovalsCount } = useMemo(() => {
+    let pre = 0;
+    let pend = 0;
+    for (const p of pendingOrders) {
+      if (isPreOrder(p)) {
+        pre++;
+      } else {
+        pend++;
+      }
+    }
+    return { preOrdersCount: pre, pendingApprovalsCount: pend };
+  }, [pendingOrders]);
+
   // Combined data structure for modals (like GoogleSheetsSyncModal)
   const appData = useMemo(() => ({
     products,
@@ -206,6 +222,15 @@ export default function App() {
     inventory,
     inventoryLogs,
   }), [products, orders, expenses, pendingOrders, shifts, currentUser, distributions, inventory, inventoryLogs]);
+
+  // Inventory reflects the drink menu in terminal.
+  // If there's no menu available, then inventory also should be none!
+  useEffect(() => {
+    if (!products) return;
+    reconcileInventoryWithProducts(products).catch(err => {
+      console.warn('[InventorySync] Error reconciling inventory with products:', err);
+    });
+  }, [products]);
 
   // Staff Check-In
   const handleCheckIn = async (session: UserSession, newShift: StaffShift) => {
@@ -504,6 +529,8 @@ export default function App() {
           collapsed={collapsed}
           setCollapsed={setCollapsed}
           pendingCount={pendingOrders.length}
+          preOrdersCount={preOrdersCount}
+          pendingApprovalsCount={pendingApprovalsCount}
           lowStockCount={lowStockCount}
           onResetData={() => setResetConfirmOpen(true)}
           currentUser={currentUser}
@@ -566,6 +593,9 @@ export default function App() {
               onUpdateInventory={handleUpdateInventory}
               currentUserRole={currentUser?.role}
               currentUserName={currentUser?.name || 'Admin'}
+              onSaveProduct={handleSaveNewProduct}
+              onDeleteProduct={handleDeleteProduct}
+              onNavigateToTerminal={() => setActiveTab('sales')}
             />
           )}
 

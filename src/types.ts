@@ -124,6 +124,7 @@ export interface PendingOrder {
   customerPhone?: string;
   customerNotes?: string;
   pickupTime?: string;
+  orderSource?: 'customer_preorder' | 'pos_staff' | 'pos' | string;
   inventoryDeducted?: boolean;
   status?: 'pending' | 'approving' | 'approved' | 'rejected';
   items: {

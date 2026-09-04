@@ -38,6 +38,9 @@ interface InventoryViewProps {
   currentUserName?: string;
   onDeleteLog?: (logId: string) => void;
   onClearLogs?: (logIds?: string[]) => void;
+  onSaveProduct?: (product: Product) => void;
+  onDeleteProduct?: (productId: string) => void;
+  onNavigateToTerminal?: () => void;
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
@@ -50,6 +53,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   currentUserName = 'Admin',
   onDeleteLog,
   onClearLogs,
+  onSaveProduct,
+  onDeleteProduct,
+  onNavigateToTerminal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [logFilterItem, setLogFilterItem] = useState<string>('all');
@@ -144,16 +150,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     return count;
   }, [inventory, todaySalesCountMap]);
 
-  // The 4 key featured items
-  const KEY_DRINKS = ['beetboost', 'green detox', 'orange sunrise', 'gingershot'];
-
-  const keyTrackedItems = useMemo(() => {
-    return inventory.filter(it => KEY_DRINKS.includes(it.productName.toLowerCase().trim()));
-  }, [inventory]);
-
-  const otherTrackedItems = useMemo(() => {
-    return inventory.filter(it => !KEY_DRINKS.includes(it.productName.toLowerCase().trim()));
-  }, [inventory]);
+  // Inventory reflects the drink menu in terminal
+  const displayInventory = useMemo(() => {
+    if (!searchQuery.trim()) return inventory;
+    const q = searchQuery.toLowerCase().trim();
+    return inventory.filter(it => it.productName.toLowerCase().includes(q));
+  }, [inventory, searchQuery]);
 
   // Quick 1-Click Restock handler
   const handleQuickRestock = (item: InventoryItem, qtyToAdd: number, e?: React.MouseEvent) => {
@@ -365,10 +367,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     };
 
     onUpdateInventory([newItem, ...inventory], [initialLog, ...inventoryLogs]);
+    if (onSaveProduct) {
+      const estimatedPrice = cost ? Math.round(cost * 2.5 * 100) / 100 : 4.00;
+      onSaveProduct({
+        id: `prod-${Date.now()}`,
+        name: name,
+        price: estimatedPrice,
+        allowAddons: true,
+      });
+    }
     setNewItemModalOpen(false);
     setNewProductName('');
     setNewCurrentStock('20');
-    showToast(`Added "${name}" to inventory (${initialStock} ${unit})`);
+    showToast(`Added "${name}" to inventory & terminal menu (${initialStock} ${unit})`);
   };
 
   // Edit Item Stock & Settings
@@ -447,10 +458,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const itemName = editingItem.productName;
     const updatedInv = inventory.filter(it => it.id !== itemId);
     onUpdateInventory(updatedInv, inventoryLogs);
+
+    if (onDeleteProduct) {
+      const matchingProd = products.find(p =>
+        p.id === itemId.replace(/^inv-/, '') ||
+        p.name.toLowerCase().trim() === itemName.toLowerCase().trim()
+      );
+      if (matchingProd) {
+        onDeleteProduct(matchingProd.id);
+      }
+    }
+
     setEditingItem(null);
     setIsConfirmingEditDelete(false);
     setEditModalError(null);
-    showToast(`Removed "${itemName}" from inventory`);
+    showToast(`Removed "${itemName}" from inventory and menu`);
   };
 
   // Filtered Logs for display
@@ -724,284 +746,252 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       </div>
 
-      {/* SECTION 1: FEATURED DRINKS INVENTORY (BEETBOOST, GREEN DETOX, ORANGE SUNRISE, GINGERSHOT) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <PackageCheck className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-sm sm:text-base font-extrabold text-white tracking-wide">
-              Core Juice & Shot Inventory Balances
-            </h2>
+      {/* SECTION 1: DRINK MENU INVENTORY BALANCES OR EMPTY STATE */}
+      {inventory.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-xl">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/5">
+            <Boxes className="w-8 h-8" />
           </div>
-          <span className="text-xs text-slate-400 font-medium">
-            Updated automatically with every checkout
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {keyTrackedItems.map(item => {
-            const theme = getDrinkVisualTheme(item.productName);
-            const soldToday = todaySalesCountMap.get(item.productName.toLowerCase().trim()) || 0;
-            const price = productPriceMap.get(item.productName.toLowerCase().trim()) || 4.0;
-            const isLowStock = item.currentStock <= item.lowStockThreshold && item.currentStock > 0;
-            const isOutOfStock = item.currentStock === 0;
-
-            // Compute relative progress bar percentage (capped at 100%)
-            const maxExpected = Math.max(item.lowStockThreshold * 4, 30);
-            const percent = Math.min(100, Math.round((item.currentStock / maxExpected) * 100));
-
-            return (
-              <div
-                key={item.id}
-                className={`bg-gradient-to-b ${theme.accentBg} border ${theme.borderColor} rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-xl relative overflow-hidden transition duration-200 hover:shadow-2xl group`}
+          <div className="space-y-1.5 max-w-md">
+            <h3 className="text-lg sm:text-xl font-black text-white tracking-tight">
+              No Drink Menu Available
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+              Inventory directly reflects the active drink menu in the terminal. When there is no menu available, inventory is none.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 pt-2 flex-wrap justify-center">
+            {onNavigateToTerminal && (
+              <button
+                onClick={onNavigateToTerminal}
+                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
               >
-                {/* Top Title & Status Badge */}
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded-lg text-xs font-black tracking-wide ${theme.badgeBg}`}>
-                          {item.productName}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 line-clamp-1 mt-1 font-medium">
-                        {theme.tagline}
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={(e) => handleOpenEditItem(item, e)}
-                      className="p-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition cursor-pointer shrink-0"
-                      title="Edit stock thresholds and settings"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Stock Count Display */}
-                  <div className="pt-2 flex items-baseline justify-between">
-                    <div>
-                      <div className="flex items-baseline gap-2">
-                        <span className={`text-3xl sm:text-4xl font-black font-mono tracking-tight ${
-                          isOutOfStock ? 'text-red-400' : isLowStock ? 'text-amber-400' : 'text-white'
-                        }`}>
-                          {item.currentStock}
-                        </span>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                          {item.unit}
-                        </span>
-                      </div>
-                      <div className="text-[11px] font-semibold text-slate-400 mt-0.5">
-                        Alert threshold: <span className="text-slate-300 font-mono">≤ {item.lowStockThreshold}</span>
-                      </div>
-                    </div>
-
-                    {/* Stock Status Badge */}
-                    <div>
-                      {isOutOfStock ? (
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1 animate-pulse">
-                          <AlertTriangle className="w-3 h-3" />
-                          Out of Stock
-                        </span>
-                      ) : isLowStock ? (
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          Low Stock
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          In Stock
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Stock Level Progress Bar */}
-                  <div className="w-full bg-slate-950/80 rounded-full h-2 overflow-hidden border border-slate-800/80">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        isOutOfStock
-                          ? 'bg-red-500 w-0'
-                          : isLowStock
-                          ? 'bg-amber-400'
-                          : theme.progressBarBg
-                      }`}
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
-
-                  {/* Today's movement stats */}
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/60 text-[11px]">
-                    <div className="bg-slate-950/60 rounded-lg p-2 border border-slate-800/40">
-                      <span className="text-slate-400 block text-[10px]">Sold Today</span>
-                      <span className="font-extrabold text-emerald-400 font-mono text-xs">
-                        {soldToday} {item.unit} (${(soldToday * price).toFixed(2)})
-                      </span>
-                    </div>
-                    <div className="bg-slate-950/60 rounded-lg p-2 border border-slate-800/40">
-                      <span className="text-slate-400 block text-[10px]">Retail Value</span>
-                      <span className="font-extrabold text-slate-200 font-mono text-xs">
-                        ${(item.currentStock * price).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Buttons & Fast 1-Click Restock Chips */}
-                <div className="space-y-2 mt-4 pt-3 border-t border-slate-800/80">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
-                    <span>Quick Restock:</span>
-                    <span className="text-[10px] text-slate-400">1-click addition</span>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {theme.presetRestocks.map(qty => (
-                      <button
-                        key={qty}
-                        onClick={(e) => handleQuickRestock(item, qty, e)}
-                        className="py-1.5 px-1 bg-slate-950/80 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold text-xs rounded-lg border border-slate-800 hover:border-emerald-400 transition cursor-pointer text-center font-mono shadow-sm active:scale-95"
-                        title={`Instantly add +${qty} to stock`}
-                      >
-                        +{qty}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1.5 pt-1">
-                    <button
-                      onClick={() => {
-                        setRestockModalItem(item);
-                        setRestockQty('7');
-                        setRestockCost(item.costPerUnit ? item.costPerUnit.toString() : '');
-                      }}
-                      className="py-1.5 px-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-lg border border-slate-700 transition flex items-center justify-center gap-1 cursor-pointer"
-                      title="Custom batch restock"
-                    >
-                      <PlusCircle className="w-3 h-3 text-emerald-400" />
-                      <span>Restock</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setAuditModalItem(item);
-                        setAuditCount(item.currentStock.toString());
-                      }}
-                      className="py-1.5 px-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-lg border border-slate-700 transition flex items-center justify-center gap-1 cursor-pointer"
-                      title="Enter physical counted stock"
-                    >
-                      <ClipboardList className="w-3 h-3 text-sky-400" />
-                      <span>Audit</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSpoilageModalItem(item);
-                        setSpoilageQty('1');
-                      }}
-                      className="py-1.5 px-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-lg border border-slate-700 transition flex items-center justify-center gap-1 cursor-pointer"
-                      title="Log spoilage, leakage or sample"
-                    >
-                      <MinusCircle className="w-3 h-3 text-rose-400" />
-                      <span>Wastage</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                <Boxes className="w-4 h-4" />
+                <span>Open POS Terminal & Add Drinks</span>
+              </button>
+            )}
+            <button
+              onClick={() => setNewItemModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition flex items-center gap-2 cursor-pointer active:scale-95"
+            >
+              <Plus className="w-4 h-4 text-emerald-400" />
+              <span>Add Drink Here</span>
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <PackageCheck className="w-4 h-4 text-emerald-400" />
+              <h2 className="text-sm sm:text-base font-extrabold text-white tracking-wide">
+                Active Drink Menu Stock Balances
+              </h2>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 font-mono font-bold text-slate-400">
+                {displayInventory.length} of {inventory.length} drinks
+              </span>
+            </div>
 
-      {/* SECTION 2: OTHER TRACKED ITEMS (IF ANY) */}
-      {otherTrackedItems.length > 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
-              <Boxes className="w-4 h-4 text-sky-400" />
-              Other Tracked Beverages & Menu Items
-            </h2>
-            <span className="text-xs text-slate-400 font-medium">
-              {otherTrackedItems.length} items
-            </span>
+            {/* Search Drink Input */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search inventory drinks..."
+                className="w-full pl-8 pr-7 py-1.5 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none transition"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-2 text-slate-500 hover:text-slate-300"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="overflow-x-auto no-scrollbar">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950/80 text-slate-400 uppercase text-[10px] font-bold border-b border-slate-800">
-                <tr>
-                  <th className="px-3 py-3 rounded-l-lg">Product Name</th>
-                  <th className="px-3 py-3 text-center">Current Stock</th>
-                  <th className="px-3 py-3 text-center">Threshold</th>
-                  <th className="px-3 py-3 text-center">Today Sold</th>
-                  <th className="px-3 py-3 text-center">Status</th>
-                  <th className="px-3 py-3 text-right rounded-r-lg">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {otherTrackedItems.map(item => {
-                  const soldToday = todaySalesCountMap.get(item.productName.toLowerCase().trim()) || 0;
-                  const isLow = item.currentStock <= item.lowStockThreshold;
+          {displayInventory.length === 0 ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-xs">
+              No matching drinks found for "{searchQuery}".
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {displayInventory.map(item => {
+                const theme = getDrinkVisualTheme(item.productName);
+                const soldToday = todaySalesCountMap.get(item.productName.toLowerCase().trim()) || 0;
+                const price = productPriceMap.get(item.productName.toLowerCase().trim()) || 4.0;
+                const isLowStock = item.currentStock <= item.lowStockThreshold && item.currentStock > 0;
+                const isOutOfStock = item.currentStock === 0;
 
-                  return (
-                    <tr key={item.id} className="hover:bg-slate-800/40 transition">
-                      <td className="px-3 py-3 font-bold text-white">
-                        {item.productName}
-                      </td>
-                      <td className="px-3 py-3 text-center font-mono font-black text-sm text-white">
-                        {item.currentStock} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
-                      </td>
-                      <td className="px-3 py-3 text-center font-mono text-slate-400">
-                        ≤ {item.lowStockThreshold}
-                      </td>
-                      <td className="px-3 py-3 text-center font-mono text-emerald-400 font-bold">
-                        {soldToday}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        {item.currentStock === 0 ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
-                            Out of stock
-                          </span>
-                        ) : isLow ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                            Low stock
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400">
-                            In Stock
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-right space-x-1.5">
+                // Compute relative progress bar percentage (capped at 100%)
+                const maxExpected = Math.max(item.lowStockThreshold * 4, 30);
+                const percent = Math.min(100, Math.round((item.currentStock / maxExpected) * 100));
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`bg-gradient-to-b ${theme.accentBg} border ${theme.borderColor} rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-xl relative overflow-hidden transition duration-200 hover:shadow-2xl group`}
+                  >
+                    {/* Top Title & Status Badge */}
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded-lg text-xs font-black tracking-wide ${theme.badgeBg}`}>
+                              {item.productName}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 line-clamp-1 mt-1 font-medium">
+                            {theme.tagline}
+                          </p>
+                        </div>
+
                         <button
-                          onClick={() => handleQuickRestock(item, 7)}
-                          className="px-2 py-1 bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold rounded text-[11px] font-mono transition cursor-pointer"
-                          title="Instantly add +7 to stock"
+                          onClick={(e) => handleOpenEditItem(item, e)}
+                          className="p-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition cursor-pointer shrink-0"
+                          title="Edit stock thresholds and settings"
                         >
-                          +7
+                          <Edit3 className="w-3.5 h-3.5" />
                         </button>
+                      </div>
+
+                      {/* Stock Count Display */}
+                      <div className="pt-2 flex items-baseline justify-between">
+                        <div>
+                          <div className="flex items-baseline gap-2">
+                            <span className={`text-3xl sm:text-4xl font-black font-mono tracking-tight ${
+                              isOutOfStock ? 'text-red-400' : isLowStock ? 'text-amber-400' : 'text-white'
+                            }`}>
+                              {item.currentStock}
+                            </span>
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                              {item.unit}
+                            </span>
+                          </div>
+                          <div className="text-[11px] font-semibold text-slate-400 mt-0.5">
+                            Alert threshold: <span className="text-slate-300 font-mono">≤ {item.lowStockThreshold}</span>
+                          </div>
+                        </div>
+
+                        {/* Stock Status Badge */}
+                        <div>
+                          {isOutOfStock ? (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1 animate-pulse">
+                              <AlertTriangle className="w-3 h-3" />
+                              Out of Stock
+                            </span>
+                          ) : isLowStock ? (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" />
+                              Low Stock
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              In Stock
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Stock Level Progress Bar */}
+                      <div className="w-full bg-slate-950/80 rounded-full h-2 overflow-hidden border border-slate-800/80">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            isOutOfStock
+                              ? 'bg-red-500 w-0'
+                              : isLowStock
+                              ? 'bg-amber-400'
+                              : theme.progressBarBg
+                          }`}
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+
+                      {/* Today's movement stats */}
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/60 text-[11px]">
+                        <div className="bg-slate-950/60 rounded-lg p-2 border border-slate-800/40">
+                          <span className="text-slate-400 block text-[10px]">Sold Today</span>
+                          <span className="font-extrabold text-emerald-400 font-mono text-xs">
+                            {soldToday} {item.unit} (${(soldToday * price).toFixed(2)})
+                          </span>
+                        </div>
+                        <div className="bg-slate-950/60 rounded-lg p-2 border border-slate-800/40">
+                          <span className="text-slate-400 block text-[10px]">Retail Value</span>
+                          <span className="font-extrabold text-slate-200 font-mono text-xs">
+                            ${(item.currentStock * price).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons & Fast 1-Click Restock Chips */}
+                    <div className="space-y-2 mt-4 pt-3 border-t border-slate-800/80">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
+                        <span>Quick Restock:</span>
+                        <span className="text-[10px] text-slate-400">1-click addition</span>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {theme.presetRestocks.map(qty => (
+                          <button
+                            key={qty}
+                            onClick={(e) => handleQuickRestock(item, qty, e)}
+                            className="py-1.5 px-1 bg-slate-950/80 hover:bg-emerald-500 hover:text-slate-950 text-emerald-400 font-bold text-xs rounded-lg border border-slate-800 hover:border-emerald-400 transition cursor-pointer text-center font-mono shadow-sm active:scale-95"
+                            title={`Instantly add +${qty} to stock`}
+                          >
+                            +{qty}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1.5 pt-1">
                         <button
                           onClick={() => {
                             setRestockModalItem(item);
                             setRestockQty('7');
+                            setRestockCost(item.costPerUnit ? item.costPerUnit.toString() : '');
                           }}
-                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded text-[11px] transition cursor-pointer"
+                          className="py-1.5 px-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-lg border border-slate-700 transition flex items-center justify-center gap-1 cursor-pointer"
+                          title="Custom batch restock"
                         >
-                          Restock
+                          <PlusCircle className="w-3 h-3 text-emerald-400" />
+                          <span>Restock</span>
                         </button>
+
                         <button
-                          onClick={() => handleOpenEditItem(item)}
-                          className="p-1 text-slate-400 hover:text-white transition cursor-pointer"
+                          onClick={() => {
+                            setAuditModalItem(item);
+                            setAuditCount(item.currentStock.toString());
+                          }}
+                          className="py-1.5 px-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-lg border border-slate-700 transition flex items-center justify-center gap-1 cursor-pointer"
+                          title="Enter physical counted stock"
                         >
-                          <Edit3 className="w-3.5 h-3.5 inline" />
+                          <ClipboardList className="w-3 h-3 text-sky-400" />
+                          <span>Audit</span>
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+
+                        <button
+                          onClick={() => {
+                            setSpoilageModalItem(item);
+                            setSpoilageQty('1');
+                          }}
+                          className="py-1.5 px-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-[11px] rounded-lg border border-slate-700 transition flex items-center justify-center gap-1 cursor-pointer"
+                          title="Log spoilage, leakage or sample"
+                        >
+                          <MinusCircle className="w-3 h-3 text-rose-400" />
+                          <span>Wastage</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

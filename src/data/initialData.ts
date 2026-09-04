@@ -46,48 +46,7 @@ export const getBruneiTimeString = (): string => {
 
 const todayStr = getBruneiDateString();
 
-export const DEFAULT_INVENTORY: InventoryItem[] = [
-  {
-    id: 'inv-beetboost',
-    productName: 'Beetboost',
-    currentStock: 25,
-    unit: 'bottles',
-    lowStockThreshold: 5,
-    costPerUnit: 1.80,
-    lastRestockedDate: todayStr,
-    lastRestockedQty: 25,
-  },
-  {
-    id: 'inv-greendetox',
-    productName: 'Green Detox',
-    currentStock: 20,
-    unit: 'bottles',
-    lowStockThreshold: 5,
-    costPerUnit: 1.80,
-    lastRestockedDate: todayStr,
-    lastRestockedQty: 20,
-  },
-  {
-    id: 'inv-orangesunrise',
-    productName: 'Orange Sunrise',
-    currentStock: 20,
-    unit: 'bottles',
-    lowStockThreshold: 5,
-    costPerUnit: 1.80,
-    lastRestockedDate: todayStr,
-    lastRestockedQty: 20,
-  },
-  {
-    id: 'inv-gingershot',
-    productName: 'Gingershot',
-    currentStock: 30,
-    unit: 'shots',
-    lowStockThreshold: 8,
-    costPerUnit: 0.80,
-    lastRestockedDate: todayStr,
-    lastRestockedQty: 30,
-  },
-];
+export const DEFAULT_INVENTORY: InventoryItem[] = [];
 
 export const INITIAL_EXPENSES: Expense[] = [
   { id: 'exp-1', date: todayStr, description: 'Fresh Whole Milk & Dairy Supplies', paymentType: 'Cash', amount: 48.50 },

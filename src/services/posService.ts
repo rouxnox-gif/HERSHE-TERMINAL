@@ -9,7 +9,8 @@ import {
   MonthlyDistributionConfig,
   PaymentMethod,
   InventoryLog,
-  InventoryMovement
+  InventoryMovement,
+  InventoryItem
 } from '../types';
 import { getOrCreateDeviceId } from '../db/repositories/appSettingsRepo';
 import { enqueueSyncItem } from '../db/repositories/syncQueueRepo';
@@ -672,12 +673,13 @@ export async function deleteExpense(id: string): Promise<void> {
 }
 
 /**
- * Saves or updates a Product.
+ * Saves or updates a Product and keeps inventory reflecting the drink menu.
  */
 export async function saveProduct(product: Product): Promise<Product> {
   const deviceId = await getOrCreateDeviceId();
   const id = product.id || `prod-${Date.now()}`;
   const nowIso = new Date().toISOString();
+  const todayStr = getBruneiDateString();
 
   const productRecord: Product = {
     ...product,
@@ -687,7 +689,7 @@ export async function saveProduct(product: Product): Promise<Product> {
     isDeleted: false,
   };
 
-  await db.transaction('rw', [db.products, db.syncQueue], async () => {
+  await db.transaction('rw', [db.products, db.inventory, db.syncQueue], async () => {
     await db.products.put(productRecord);
 
     await enqueueSyncItem({
@@ -698,6 +700,56 @@ export async function saveProduct(product: Product): Promise<Product> {
       deviceId,
       operationId: `sync-prod-${id}`,
     });
+
+    // Ensure inventory item reflects this product
+    const allInv = await db.inventory.toArray();
+    const existingInv = allInv.find(inv =>
+      inv.id === `inv-${id}` ||
+      (product.id && inv.id === `inv-${product.id}`) ||
+      inv.productName.toLowerCase().trim() === product.name.toLowerCase().trim()
+    );
+
+    if (existingInv) {
+      if (existingInv.productName !== product.name) {
+        const updatedInvItem: InventoryItem = {
+          ...existingInv,
+          productName: product.name,
+          updatedAt: nowIso,
+        };
+        await db.inventory.put(updatedInvItem);
+        await enqueueSyncItem({
+          entityType: 'inventoryItem',
+          entityId: existingInv.id,
+          operation: 'UPDATE',
+          payload: updatedInvItem,
+          deviceId,
+          operationId: `sync-inv-name-${existingInv.id}-${Date.now()}`,
+        });
+      }
+    } else {
+      const invId = `inv-${id}`;
+      const newInvItem: InventoryItem = {
+        id: invId,
+        productName: product.name,
+        currentStock: 20,
+        unit: 'bottles',
+        lowStockThreshold: 5,
+        costPerUnit: Math.round((product.price * 0.4) * 100) / 100 || 1.50,
+        lastRestockedDate: todayStr,
+        lastRestockedQty: 20,
+        updatedAt: nowIso,
+        deviceId,
+      };
+      await db.inventory.put(newInvItem);
+      await enqueueSyncItem({
+        entityType: 'inventoryItem',
+        entityId: invId,
+        operation: 'UPDATE',
+        payload: newInvItem,
+        deviceId,
+        operationId: `sync-inv-${invId}-${Date.now()}`,
+      });
+    }
   });
 
   triggerSync();
@@ -705,15 +757,17 @@ export async function saveProduct(product: Product): Promise<Product> {
 }
 
 /**
- * Deletes a Product.
+ * Deletes a Product and its corresponding inventory item.
+ * If no products remain, inventory is also set to none.
  */
 export async function deleteProduct(productId: string): Promise<void> {
   const deviceId = await getOrCreateDeviceId();
   const existing = await db.products.get(productId);
+  const nowIso = new Date().toISOString();
 
-  await db.transaction('rw', [db.products, db.syncQueue], async () => {
+  await db.transaction('rw', [db.products, db.inventory, db.syncQueue], async () => {
     if (existing) {
-      await db.products.update(productId, { isDeleted: true, updatedAt: new Date().toISOString() });
+      await db.products.update(productId, { isDeleted: true, updatedAt: nowIso });
     } else {
       await db.products.delete(productId);
     }
@@ -724,8 +778,44 @@ export async function deleteProduct(productId: string): Promise<void> {
       operation: 'DELETE',
       payload: { id: productId },
       deviceId,
-      operationId: `sync-del-prod-${productId}`,
+      operationId: `sync-del-prod-${productId}-${Date.now()}`,
     });
+
+    // Remove matching inventory item
+    const allInv = await db.inventory.toArray();
+    const matchingInv = allInv.find(inv =>
+      inv.id === `inv-${productId}` ||
+      (existing && inv.productName.toLowerCase().trim() === existing.name.toLowerCase().trim())
+    );
+
+    if (matchingInv) {
+      await db.inventory.delete(matchingInv.id);
+      await enqueueSyncItem({
+        entityType: 'inventoryItem',
+        entityId: matchingInv.id,
+        operation: 'DELETE',
+        payload: { id: matchingInv.id },
+        deviceId,
+        operationId: `sync-del-inv-${matchingInv.id}-${Date.now()}`,
+      });
+    }
+
+    // If there's no active menu items left, inventory must also be none!
+    const allRemainingProducts = (await db.products.toArray()).filter(p => !p.isDeleted && p.id !== productId);
+    if (allRemainingProducts.length === 0) {
+      const remainingInv = await db.inventory.toArray();
+      for (const item of remainingInv) {
+        await db.inventory.delete(item.id);
+        await enqueueSyncItem({
+          entityType: 'inventoryItem',
+          entityId: item.id,
+          operation: 'DELETE',
+          payload: { id: item.id },
+          deviceId,
+          operationId: `sync-del-inv-${item.id}-${Date.now()}`,
+        });
+      }
+    }
   });
 
   triggerSync();
@@ -733,15 +823,18 @@ export async function deleteProduct(productId: string): Promise<void> {
 
 /**
  * Clears/deletes all products from menu so owner can start with a fresh slate.
+ * Per user requirement: If there's no menu available, then inventory also should be none!
  */
 export async function clearAllProducts(): Promise<void> {
   const deviceId = await getOrCreateDeviceId();
   const allProducts = await db.products.toArray();
   const activeProducts = allProducts.filter(p => !p.isDeleted);
+  const allInv = await db.inventory.toArray();
+  const nowIso = new Date().toISOString();
 
-  await db.transaction('rw', [db.products, db.syncQueue], async () => {
+  await db.transaction('rw', [db.products, db.inventory, db.syncQueue], async () => {
     for (const prod of activeProducts) {
-      await db.products.update(prod.id, { isDeleted: true, updatedAt: new Date().toISOString() });
+      await db.products.update(prod.id, { isDeleted: true, updatedAt: nowIso });
       await enqueueSyncItem({
         entityType: 'product',
         entityId: prod.id,
@@ -749,6 +842,110 @@ export async function clearAllProducts(): Promise<void> {
         payload: { id: prod.id },
         deviceId,
         operationId: `sync-del-prod-${prod.id}-${Date.now()}`,
+      });
+    }
+
+    // If there's no menu available, inventory also should be none!
+    for (const item of allInv) {
+      await db.inventory.delete(item.id);
+      await enqueueSyncItem({
+        entityType: 'inventoryItem',
+        entityId: item.id,
+        operation: 'DELETE',
+        payload: { id: item.id },
+        deviceId,
+        operationId: `sync-del-inv-${item.id}-${Date.now()}`,
+      });
+    }
+  });
+
+  triggerSync();
+}
+
+/**
+ * Reconciles inventory items with the active terminal drink menu.
+ * Rules:
+ * 1. If there's no menu available (0 products), inventory MUST be none!
+ * 2. If menu exists, inventory items must match the menu items.
+ */
+export async function reconcileInventoryWithProducts(activeProducts: Product[]): Promise<void> {
+  const deviceId = await getOrCreateDeviceId();
+  const nowIso = new Date().toISOString();
+  const todayStr = getBruneiDateString();
+
+  const productsList = (activeProducts || []).filter(p => !p.isDeleted);
+  const allInventory = await db.inventory.toArray();
+
+  // Rule 1: If there's no menu available (0 products), inventory MUST be none!
+  if (productsList.length === 0) {
+    if (allInventory.length > 0) {
+      await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
+        for (const item of allInventory) {
+          await db.inventory.delete(item.id);
+          await enqueueSyncItem({
+            entityType: 'inventoryItem',
+            entityId: item.id,
+            operation: 'DELETE',
+            payload: { id: item.id },
+            deviceId,
+            operationId: `sync-del-inv-${item.id}-${Date.now()}`,
+          });
+        }
+      });
+      triggerSync();
+    }
+    return;
+  }
+
+  // Rule 2: If menu exists, inventory items must reflect the menu items
+  const menuNames = new Set(productsList.map(p => p.name.toLowerCase().trim()));
+  const itemsToDelete = allInventory.filter(inv => !menuNames.has(inv.productName.toLowerCase().trim()));
+
+  const existingInvNames = new Set(allInventory.map(inv => inv.productName.toLowerCase().trim()));
+  const productsToAdd = productsList.filter(p => !existingInvNames.has(p.name.toLowerCase().trim()));
+
+  if (itemsToDelete.length === 0 && productsToAdd.length === 0) {
+    // Already synchronized
+    return;
+  }
+
+  await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
+    // Remove orphan inventory items that aren't on the menu
+    for (const item of itemsToDelete) {
+      await db.inventory.delete(item.id);
+      await enqueueSyncItem({
+        entityType: 'inventoryItem',
+        entityId: item.id,
+        operation: 'DELETE',
+        payload: { id: item.id },
+        deviceId,
+        operationId: `sync-del-inv-${item.id}-${Date.now()}`,
+      });
+    }
+
+    // Add inventory items for drinks on the menu missing from inventory
+    for (const prod of productsToAdd) {
+      const invId = `inv-${prod.id}`;
+      const newInvItem: InventoryItem = {
+        id: invId,
+        productName: prod.name,
+        currentStock: 20,
+        unit: 'bottles',
+        lowStockThreshold: 5,
+        costPerUnit: Math.round((prod.price * 0.4) * 100) / 100 || 1.50,
+        lastRestockedDate: todayStr,
+        lastRestockedQty: 20,
+        updatedAt: nowIso,
+        deviceId,
+      };
+      await db.inventory.put(newInvItem);
+      await enqueueSyncItem({
+        entityType: 'inventoryItem',
+        entityId: invId,
+        operation: 'UPDATE',
+        payload: newInvItem,
+        deviceId,
+        operationId: `sync-inv-${invId}-${Date.now()}`,
       });
     }
   });

@@ -33,6 +33,8 @@ interface HeaderProps {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
   pendingCount: number;
+  preOrdersCount?: number;
+  pendingApprovalsCount?: number;
   lowStockCount?: number;
   onResetData: () => void;
   currentUser: UserSession | null;
@@ -51,6 +53,8 @@ export const Header: React.FC<HeaderProps> = ({
   collapsed,
   setCollapsed,
   pendingCount,
+  preOrdersCount,
+  pendingApprovalsCount,
   lowStockCount = 0,
   onResetData,
   currentUser,
@@ -76,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'monthly', label: 'Reports', icon: <TrendingUp className="w-5 h-5" /> },
     { id: 'distribution', label: 'Partnership distribution', icon: <PieChart className="w-5 h-5" /> },
     { id: 'history', label: 'History', icon: <History className="w-5 h-5" /> },
-    { id: 'pending', label: 'Pending', icon: <Clock className="w-5 h-5" />, badge: pendingCount, badgeColor: 'bg-emerald-500 text-slate-950' },
+    { id: 'pending', label: 'Pending & Pre-Orders', icon: <Clock className="w-5 h-5" />, badge: pendingCount, badgeColor: 'bg-emerald-500 text-slate-950' },
     { id: 'receipts', label: 'Receipts', icon: <FileCheck className="w-5 h-5" /> },
   ];
 
@@ -167,10 +171,30 @@ export const Header: React.FC<HeaderProps> = ({
           {!isStaffOnly && pendingCount > 0 && (
             <button
               onClick={() => setActiveTab('pending')}
-              className="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[11px] flex items-center gap-1 active:scale-95 transition"
+              className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
+              title={`${preOrdersCount || 0} Pre-Orders, ${pendingApprovalsCount || 0} Pending Approvals`}
             >
-              <Clock className="w-3 h-3 text-amber-400" />
-              <span>{pendingCount}</span>
+              {(preOrdersCount || 0) > 0 && (
+                <span className="flex items-center gap-1 text-emerald-400 font-black">
+                  <ShoppingBag className="w-3 h-3" />
+                  <span>{preOrdersCount}</span>
+                </span>
+              )}
+              {(preOrdersCount || 0) > 0 && (pendingApprovalsCount || 0) > 0 && (
+                <span className="text-slate-600 font-bold">•</span>
+              )}
+              {(pendingApprovalsCount || 0) > 0 && (
+                <span className="flex items-center gap-1 text-amber-400 font-black">
+                  <Clock className="w-3 h-3" />
+                  <span>{pendingApprovalsCount}</span>
+                </span>
+              )}
+              {!(preOrdersCount || 0) && !(pendingApprovalsCount || 0) && (
+                <span className="flex items-center gap-1 text-amber-400 font-black">
+                  <Clock className="w-3 h-3" />
+                  <span>{pendingCount}</span>
+                </span>
+              )}
             </button>
           )}
 
@@ -361,11 +385,32 @@ export const Header: React.FC<HeaderProps> = ({
                   {tab.label}
                 </span>
 
-                {tab.badge !== undefined && tab.badge > 0 && !isStaffOnly && (
+                {tab.id === 'pending' && ((preOrdersCount || 0) > 0 || (pendingApprovalsCount || 0) > 0) && !isStaffOnly ? (
+                  <div className="ml-auto flex items-center gap-1">
+                    {(preOrdersCount || 0) > 0 && (
+                      <span
+                        className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-emerald-500 text-slate-950 flex items-center gap-0.5"
+                        title={`${preOrdersCount} Pre-Orders`}
+                      >
+                        <ShoppingBag className="w-2.5 h-2.5" />
+                        {preOrdersCount}
+                      </span>
+                    )}
+                    {(pendingApprovalsCount || 0) > 0 && (
+                      <span
+                        className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-amber-500 text-slate-950 flex items-center gap-0.5"
+                        title={`${pendingApprovalsCount} Staff Approvals`}
+                      >
+                        <Clock className="w-2.5 h-2.5" />
+                        {pendingApprovalsCount}
+                      </span>
+                    )}
+                  </div>
+                ) : tab.badge !== undefined && tab.badge > 0 && !isStaffOnly ? (
                   <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-slate-950 shadow-sm">
                     {tab.badge}
                   </span>
-                )}
+                ) : null}
               </button>
             );
           })}

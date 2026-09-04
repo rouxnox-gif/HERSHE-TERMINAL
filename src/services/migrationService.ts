@@ -7,6 +7,7 @@ import {
 } from '../data/initialData';
 import { getOrCreateDeviceId, setStorePin } from '../db/repositories/appSettingsRepo';
 import { Product, Order, Expense, PendingOrder, StaffShift, InventoryItem, InventoryLog, MonthlyDistributionConfig } from '../types';
+import { reconcileInventoryWithProducts } from './posService';
 
 const MIGRATION_FLAG_KEY = 'hershe_pos_dexie_migration_v1_done';
 const OLD_STORAGE_KEY = 'hershe_pos_app_data_v4';
@@ -206,6 +207,12 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
       }
     }
   });
+
+  // Reconcile inventory with active products:
+  // If there's no menu available, inventory also should be none!
+  const allProds = await db.products.toArray();
+  const activeProds = allProds.filter(p => !p.isDeleted);
+  await reconcileInventoryWithProducts(activeProds);
 
   // Verify verification before committing completion flag
   const verifiedProducts = await db.products.count();
