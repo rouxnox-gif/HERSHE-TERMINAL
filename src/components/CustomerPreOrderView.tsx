@@ -197,7 +197,7 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
 
   // Pre-order open status (default true if undefined)
   const isPreOrderOpen = currentStoreInfo.isPreOrderOpen !== false;
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = !standalone && currentUser?.role === 'admin';
 
   // Computed direct customer link including active storeId parameter
   const customerShareUrl = useMemo(() => {
@@ -300,9 +300,9 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
 
   // Active drink catalog reflecting the terminal's drink menu
   const activeProductCatalog = useMemo(() => {
-    // 1. If staff/admin is logged in or previewing within POS terminal session,
+    // 1. If staff/admin is previewing within POS terminal session (not standalone customer mode),
     // directly reflect the terminal's local live product list from usePOSData()
-    if (currentUser && products !== undefined) {
+    if (!standalone && currentUser && products !== undefined) {
       return products;
     }
 
@@ -689,39 +689,10 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
             currentStock: newStock,
             updatedAt: nowIso,
           };
-
-          if (firestoreDb && storeIdToUse) {
-            try {
-              const invDocRef = doc(firestoreDb, 'stores', storeIdToUse, 'inventory', invItem.id);
-              await setDoc(invDocRef, {
-                ...invItem,
-                currentStock: newStock,
-                updatedAt: nowIso,
-              }, { merge: true });
-
-              const movementId = `mv-${generatedOrderId}-${invItem.id}`;
-              const mvDocRef = doc(firestoreDb, 'stores', storeIdToUse, 'inventoryMovements', movementId);
-              await setDoc(mvDocRef, {
-                movementId,
-                productId: invItem.id,
-                productName: invItem.productName,
-                quantityChange: -qtyToDeduct,
-                type: 'sale',
-                orderId: generatedOrderId,
-                deviceId: 'customer-link',
-                createdAt: nowIso,
-                staffName: `Customer (${name})`,
-                reason: `Customer Pre-Order #${generatedOrderId}`,
-                appliedLocally: true,
-                syncedToFirestore: true,
-              });
-            } catch (invErr) {
-              console.warn('Failed updating inventory on customer order:', invErr);
-            }
-          }
         }
       }
 
+      // Optimistically update stock count for current customer session
       setFirestoreInventory(updatedInvList);
 
       if (firestoreDb && storeIdToUse) {
@@ -729,6 +700,8 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
           const poDocRef = doc(firestoreDb, 'stores', storeIdToUse, 'pendingOrders', generatedOrderId);
           await setDoc(poDocRef, {
             ...newPendingOrder,
+            orderSource: 'customer_preorder',
+            inventoryDeducted: false,
             createdAt: nowIso,
             updatedAt: nowIso,
           });

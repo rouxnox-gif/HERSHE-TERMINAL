@@ -194,12 +194,17 @@ export async function createPendingOrder(params: {
   const nowIso = new Date().toISOString();
   const resolvedStaffName = params.staffName || params.pendingOrder.staffName || 'Staff';
 
+  const isCustomerOrder = params.pendingOrder.orderSource === 'customer_preorder' ||
+    params.pendingOrder.source === 'Customer Pre-Order' ||
+    (params.staffName && params.staffName.toLowerCase().startsWith('customer')) ||
+    (params.pendingOrder.staffName && params.pendingOrder.staffName.toLowerCase().startsWith('customer'));
+
   const pendingRecord: PendingOrder = {
     ...params.pendingOrder,
     id: params.pendingOrder.id || orderId,
     orderId,
     staffName: resolvedStaffName,
-    inventoryDeducted: true,
+    inventoryDeducted: isCustomerOrder ? false : true,
     createdAt: params.pendingOrder.createdAt || nowIso,
     updatedAt: nowIso,
     deviceId,
@@ -218,8 +223,8 @@ export async function createPendingOrder(params: {
       return;
     }
 
-    // Deduct inventory immediately upon staff checkout
-    if (pendingRecord.items && pendingRecord.items.length > 0) {
+    // Deduct inventory immediately ONLY for in-store staff checkout (not unapproved customer pre-orders)
+    if (!isCustomerOrder && pendingRecord.items && pendingRecord.items.length > 0) {
       const allInventory = await db.inventory.toArray();
       for (const item of pendingRecord.items) {
         if (!item.name) continue;

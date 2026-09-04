@@ -74,15 +74,6 @@ export default function App() {
     storeInfo,
   } = usePOSData();
 
-  const [currentUser, setCurrentUser] = useState<UserSession | null>(() => {
-    try {
-      const stored = localStorage.getItem('hershe_current_user_session');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
-
   // Helper to determine if the current URL points to the public customer portal
   const checkIsCustomerPortalUrl = () => {
     if (typeof window === 'undefined') return false;
@@ -90,21 +81,36 @@ export default function App() {
     const tabParam = (params.get('tab') || params.get('view') || params.get('mode') || params.get('portal') || '').toLowerCase();
     const hash = (window.location.hash || '').toLowerCase();
     const path = (window.location.pathname || '').toLowerCase();
-    const hasStoreParam = Boolean(params.get('store') || params.get('storeId') || params.get('s'));
     
     return (
       tabParam === 'customer' ||
       tabParam === 'menu' ||
       tabParam === 'order' ||
       tabParam === 'preorder' ||
-      hasStoreParam ||
+      params.has('customer') ||
       hash.includes('customer') ||
       hash.includes('menu') ||
       hash.includes('order') ||
-      path.includes('/customer') ||
-      path.includes('/menu')
+      path.endsWith('/customer') ||
+      path.endsWith('/menu')
     );
   };
+
+  // URL customer portal status takes absolute priority over any stored terminal session
+  const [isCustomerPortalUrl, setIsCustomerPortalUrl] = useState<boolean>(() => checkIsCustomerPortalUrl());
+
+  const [currentUser, setCurrentUser] = useState<UserSession | null>(() => {
+    // If opening via customer portal URL, NEVER restore terminal session into this browser tab
+    if (checkIsCustomerPortalUrl()) {
+      return null;
+    }
+    try {
+      const stored = localStorage.getItem('hershe_current_user_session');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     return checkIsCustomerPortalUrl() ? 'customer' : 'sales';
@@ -123,19 +129,30 @@ export default function App() {
   const [resetConfirmOpen, setResetConfirmOpen] = useState<boolean>(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState<boolean>(false);
 
-  // Listen to browser navigation / URL parameter changes
+  // Listen to browser navigation / URL parameter changes (popstate & hashchange)
   useEffect(() => {
-    const handleUrlCheck = () => {
-      if (checkIsCustomerPortalUrl()) {
+    const handleUrlChange = () => {
+      const isCustomer = checkIsCustomerPortalUrl();
+      setIsCustomerPortalUrl(isCustomer);
+      if (isCustomer) {
         setActiveTab('customer');
         setStorePinModalOpen(false);
+      } else {
+        // Returned to terminal URL - restore stored terminal session if available
+        try {
+          const stored = localStorage.getItem('hershe_current_user_session');
+          setCurrentUser(stored ? JSON.parse(stored) : null);
+        } catch {
+          setCurrentUser(null);
+        }
+        setActiveTab(prev => (prev === 'customer' ? 'sales' : prev));
       }
     };
-    window.addEventListener('popstate', handleUrlCheck);
-    window.addEventListener('hashchange', handleUrlCheck);
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
     return () => {
-      window.removeEventListener('popstate', handleUrlCheck);
-      window.removeEventListener('hashchange', handleUrlCheck);
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
     };
   }, []);
 
@@ -146,9 +163,11 @@ export default function App() {
       if (activeTab === 'customer') {
         url.searchParams.set('tab', 'customer');
         window.history.replaceState({}, '', url.toString());
+        setIsCustomerPortalUrl(true);
       } else if (url.searchParams.get('tab') === 'customer') {
         url.searchParams.delete('tab');
         window.history.replaceState({}, '', url.toString());
+        setIsCustomerPortalUrl(false);
       }
     }
   }, [activeTab]);
@@ -176,19 +195,23 @@ export default function App() {
   }, [collapsed]);
 
   useEffect(() => {
+    // In customer portal mode, leave the stored terminal session in localStorage untouched
+    if (isCustomerPortalUrl) {
+      return;
+    }
     if (currentUser) {
       localStorage.setItem('hershe_current_user_session', JSON.stringify(currentUser));
     } else {
       localStorage.removeItem('hershe_current_user_session');
     }
-  }, [currentUser]);
+  }, [currentUser, isCustomerPortalUrl]);
 
-  // Lock staff role strictly to POS terminal view
+  // Lock staff role strictly to POS terminal view (only while in terminal mode)
   useEffect(() => {
-    if (currentUser?.role === 'staff' && activeTab !== 'sales') {
+    if (!isCustomerPortalUrl && currentUser?.role === 'staff' && activeTab !== 'sales') {
       setActiveTab('sales');
     }
-  }, [currentUser, activeTab]);
+  }, [currentUser, activeTab, isCustomerPortalUrl]);
 
   // Low stock counter for header badge
   const lowStockCount = useMemo(() => {
@@ -498,16 +521,73 @@ export default function App() {
     });
   };
 
-  const isCustomerPortalMode = activeTab === 'customer' && !currentUser;
+  // Navigation from public customer portal to terminal mode
+  const handleNavigateFromCustomerToTerminal = () => {
+    // 1. Remove customer search params and hashes from URL
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      url.searchParams.delete('view');
+      url.searchParams.delete('mode');
+      url.searchParams.delete('portal');
+      if (url.hash.includes('customer') || url.hash.includes('menu') || url.hash.includes('order')) {
+        url.hash = '';
+      }
+      window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''));
+    }
 
+    // 2. Switch off customer portal mode and reset tab
+    setIsCustomerPortalUrl(false);
+    setActiveTab('sales');
+
+    // 3. Authenticate: restore stored terminal session if valid, otherwise require check-in
+    try {
+      const stored = localStorage.getItem('hershe_current_user_session');
+      const parsed = stored ? JSON.parse(stored) : null;
+      if (parsed && (parsed.role === 'admin' || parsed.role === 'staff')) {
+        setCurrentUser(parsed);
+      } else {
+        setCurrentUser(null);
+      }
+    } catch {
+      setCurrentUser(null);
+    }
+  };
+
+  // 1. PUBLIC CUSTOMER PORTAL MODE (Authoritative URL-driven)
+  // Renders strictly the customer pre-order portal without exposing any terminal UI or admin session
+  if (isCustomerPortalUrl) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
+        <main className="flex-1 h-screen w-full pb-0 bg-slate-950">
+          <CustomerPreOrderView
+            products={products}
+            inventory={inventory}
+            storeInfo={storeInfo}
+            paymentConfigs={paymentConfigs}
+            currentUser={null}
+            standalone={true}
+            onSubmitPreOrder={handleCustomerPreOrderSubmit}
+            onSaveStoreInfo={handleSaveStoreInfo}
+            onNavigateToTerminal={handleNavigateFromCustomerToTerminal}
+          />
+        </main>
+      </div>
+    );
+  }
+
+  // 2. AUTHENTICATED / TERMINAL MODE
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
-      {/* Staff Check-In Screen Overlay when not checked in and not browsing customer portal */}
-      {!currentUser && activeTab !== 'customer' && (
+      {/* Staff Check-In Screen Overlay when not checked in */}
+      {!currentUser && (
         <StaffCheckInModal
           onCheckIn={handleCheckIn}
           activeShiftCount={shifts.length}
-          onOpenCustomerPortal={() => setActiveTab('customer')}
+          onOpenCustomerPortal={() => {
+            setIsCustomerPortalUrl(true);
+            setActiveTab('customer');
+          }}
         />
       )}
 
@@ -521,37 +601,31 @@ export default function App() {
         />
       )}
 
-      {/* Sidebar Header Navigation - hidden in public customer mode */}
-      {!isCustomerPortalMode && (
-        <Header
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          collapsed={collapsed}
-          setCollapsed={setCollapsed}
-          pendingCount={pendingOrders.length}
-          preOrdersCount={preOrdersCount}
-          pendingApprovalsCount={pendingApprovalsCount}
-          lowStockCount={lowStockCount}
-          onResetData={() => setResetConfirmOpen(true)}
-          currentUser={currentUser}
-          onEndShift={handleEndShift}
-          onOpenShiftLogs={() => setShiftLogsOpen(true)}
-          onOpenGoogleSheets={() => setGoogleSheetsOpen(true)}
-          onOpenSettings={() => setSettingsModalOpen(true)}
-          hiddenTabs={hiddenTabs}
-          activePinCode={activePinCode}
-          onOpenStorePinModal={() => setStorePinModalOpen(true)}
-        />
-      )}
+      {/* Sidebar Header Navigation */}
+      <Header
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        pendingCount={pendingOrders.length}
+        preOrdersCount={preOrdersCount}
+        pendingApprovalsCount={pendingApprovalsCount}
+        lowStockCount={lowStockCount}
+        onResetData={() => setResetConfirmOpen(true)}
+        currentUser={currentUser}
+        onEndShift={handleEndShift}
+        onOpenShiftLogs={() => setShiftLogsOpen(true)}
+        onOpenGoogleSheets={() => setGoogleSheetsOpen(true)}
+        onOpenSettings={() => setSettingsModalOpen(true)}
+        hiddenTabs={hiddenTabs}
+        activePinCode={activePinCode}
+        onOpenStorePinModal={() => setStorePinModalOpen(true)}
+      />
 
       {/* Main Content Area */}
-      <main className={`flex-1 overflow-y-auto no-scrollbar bg-slate-950 flex flex-col ${
-        isCustomerPortalMode 
-          ? 'h-screen w-full pb-0' 
-          : 'h-[calc(100vh-56px)] md:h-screen pb-20 md:pb-0'
-      }`}>
+      <main className="flex-1 overflow-y-auto no-scrollbar bg-slate-950 flex flex-col h-[calc(100vh-56px)] md:h-screen pb-20 md:pb-0">
         <div className="flex-1">
-          {/* Customer Pre-Order Portal View */}
+          {/* Customer Pre-Order Portal View (terminal preview mode) */}
           {activeTab === 'customer' && (
             <CustomerPreOrderView
               products={products}
@@ -559,6 +633,7 @@ export default function App() {
               storeInfo={storeInfo}
               paymentConfigs={paymentConfigs}
               currentUser={currentUser}
+              standalone={false}
               onSubmitPreOrder={handleCustomerPreOrderSubmit}
               onSaveStoreInfo={handleSaveStoreInfo}
               onNavigateToTerminal={() => setActiveTab('sales')}

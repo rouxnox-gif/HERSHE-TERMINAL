@@ -35,7 +35,7 @@ service cloud.firestore {
     // Public store registry reference (resolves storeId for customer portal links)
     match /public/{docId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isAuthenticated();
     }
 
     // Isolated Store Partition (/stores/{storeId}/...)
@@ -68,9 +68,11 @@ service cloud.firestore {
       }
 
       // Metadata subcollection (Store Info, Pre-order Open/Close status, Add-ons)
+      // Publicly readable so customer menu knows store name, WhatsApp number, add-ons, and open/closed state
+      // Writable only by authenticated store members or owner during provisioning
       match /meta/{docId} {
         allow read: if true;
-        allow write: if true;
+        allow write: if isStoreMember(storeId) || (isAuthenticated() && resource == null);
       }
 
       // Products subcollection: Publicly readable for customer pre-order menu, editable only by store staff/owner
@@ -79,9 +81,14 @@ service cloud.firestore {
         allow write: if isStoreMember(storeId);
       }
 
-      // Pending Orders subcollection: Publicly creatable for customer pre-orders, read/managed by store staff/owner
+      // Pending Orders subcollection:
+      // Public customers may create a customer pre-order with basic validation.
+      // Customers CANNOT read other customers' pending orders, nor update/delete.
+      // Store members have full management access.
       match /pendingOrders/{pendingId} {
-        allow create: if true;
+        allow create: if request.resource.data.orderId is string &&
+                         request.resource.data.totalAmount is number &&
+                         request.resource.data.totalAmount >= 0;
         allow read, update, delete: if isStoreMember(storeId);
       }
 
@@ -90,21 +97,23 @@ service cloud.firestore {
         allow read, write: if isStoreMember(storeId);
       }
 
-      // Inventory subcollection: Publicly readable and updatable for customer pre-order stock deductions, editable by store staff/owner
+      // Inventory subcollection:
+      // Publicly readable so customer menu can verify item availability / in-stock status.
+      // Writable ONLY by authorized store members.
       match /inventory/{itemId} {
-        allow read, write: if true;
+        allow read: if true;
+        allow write: if isStoreMember(storeId);
       }
 
-      // Inventory Movements subcollection: Publicly creatable for customer pre-orders, read/managed by store staff/owner
+      // Inventory Movements subcollection:
+      // Writable and readable ONLY by authorized store members.
       match /inventoryMovements/{movementId} {
-        allow create: if true;
-        allow read, update, delete: if isStoreMember(storeId);
+        allow read, write: if isStoreMember(storeId);
       }
 
       // Transactional & Private Subcollections:
       // /stores/{storeId}/orders/{orderId}
       // /stores/{storeId}/expenses/{expenseId}
-      // /stores/{storeId}/inventoryMovements/{movementId}
       // /stores/{storeId}/shifts/{shiftId}
       // /stores/{storeId}/distributions/{month}
       match /{subcollection}/{docId} {

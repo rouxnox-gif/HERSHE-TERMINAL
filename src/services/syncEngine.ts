@@ -166,13 +166,15 @@ async function syncSingleItemToFirestore(storeId: string, item: SyncQueueItem): 
 
   await setDoc(docRef, cleanPayload, { merge: true });
 
-  // Update store meta info timestamp
-  try {
-    const storePin = await getStorePin();
-    const metaRef = doc(firestoreDb, 'stores', storeId, 'meta', 'info');
-    await setDoc(metaRef, { storeId, storePin, lastActivityAt: new Date().toISOString() }, { merge: true });
-  } catch {
-    // Non-blocking
+  // Update store meta info timestamp only for authenticated staff/admin sessions
+  if (auth.currentUser) {
+    try {
+      const storePin = await getStorePin();
+      const metaRef = doc(firestoreDb, 'stores', storeId, 'meta', 'info');
+      await setDoc(metaRef, { storeId, storePin, lastActivityAt: new Date().toISOString() }, { merge: true });
+    } catch {
+      // Non-blocking
+    }
   }
 }
 
