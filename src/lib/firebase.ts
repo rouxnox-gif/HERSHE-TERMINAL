@@ -1,7 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
-  signInAnonymously,
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut as firebaseSignOut,
@@ -13,7 +12,9 @@ import {
 import { 
   initializeFirestore, 
   getFirestore, 
-  Firestore 
+  Firestore,
+  doc,
+  getDocFromServer
 } from 'firebase/firestore';
 import defaultAppletConfig from '../../firebase-applet-config.json';
 
@@ -44,12 +45,12 @@ if (typeof window !== 'undefined') {
 
 const config = resolvedFirebaseConfig as any;
 
-// Initialize Firestore with auto-detect long polling for robust iframe / network proxy connectivity
+// Initialize Firestore with forced long polling for robust iframe / sandbox / network proxy connectivity
 let firestoreInstance: Firestore;
 try {
   firestoreInstance = config.firestoreDatabaseId
-    ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true }, config.firestoreDatabaseId)
-    : initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+    ? initializeFirestore(app, { experimentalForceLongPolling: true }, config.firestoreDatabaseId)
+    : initializeFirestore(app, { experimentalForceLongPolling: true });
 } catch {
   firestoreInstance = config.firestoreDatabaseId
     ? getFirestore(app, config.firestoreDatabaseId)
@@ -58,13 +59,71 @@ try {
 
 export const db = firestoreInstance;
 
+// Validate Connection to Firestore on startup
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'public', 'connection_health'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+testConnection();
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 // Track single-flight initial auth readiness
 let singleFlightAuthPromise: Promise<User | null> | null = null;
 
 /**
  * Ensures Firebase Authentication state is resolved.
- * If no user is logged in, automatically signs in anonymously so that cloud syncing
- * and store security rules function seamlessly without requiring human popup interaction.
+ * Checks for restored Google session credentials without triggering unnecessary popup prompts.
  * Guaranteed single-flight promise.
  */
 export async function ensureAuth(): Promise<User | null> {
@@ -94,18 +153,7 @@ export async function ensureAuth(): Promise<User | null> {
         });
       }
 
-      if (auth.currentUser) {
-        return auth.currentUser;
-      }
-
-      // Automatically sign in anonymously for friction-free POS terminal operations
-      try {
-        const cred = await signInAnonymously(auth);
-        return cred.user;
-      } catch (anonErr) {
-        console.warn('[Firebase] Anonymous authentication notice:', anonErr);
-        return auth.currentUser || null;
-      }
+      return auth.currentUser || null;
     } catch (err) {
       console.warn('[Firebase] Auth state restoration note:', err);
       return auth.currentUser || null;

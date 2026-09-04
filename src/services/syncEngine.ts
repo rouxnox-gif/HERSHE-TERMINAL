@@ -5,7 +5,7 @@ import {
   onSnapshot,
   Unsubscribe
 } from 'firebase/firestore';
-import { db as firestoreDb, ensureAuth } from '../lib/firebase';
+import { db as firestoreDb, ensureAuth, auth, subscribeToAuth } from '../lib/firebase';
 import { db as localDb } from '../db/db';
 import {
   getPendingSyncItems,
@@ -239,77 +239,81 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
     }, (err) => console.warn('[SyncEngine] Products listener error:', err));
     activeListeners.push(unsubProd);
 
-    // 2. Orders listener
-    const ordersCol = collection(firestoreDb, 'stores', storeId, 'orders');
-    const unsubOrders = onSnapshot(ordersCol, async (snapshot) => {
-      for (const change of snapshot.docChanges()) {
-        const changeData = change.doc.data() as any;
-        if (change.type === 'removed' || changeData?.isDeleted) {
-          await localDb.orders.delete(change.doc.id);
-        }
-      }
+    const isAuthUser = Boolean(auth.currentUser);
 
-      const remoteOrders: Order[] = [];
-      snapshot.forEach(d => {
-        const data = d.data() as any;
-        if (!data.orderId) data.orderId = d.id;
-        if (!data.id) data.id = d.id;
-        if (!data.isDeleted) {
-          remoteOrders.push(data as Order);
+    // 2. Orders listener (Private store subcollection - requires authenticated member session)
+    if (isAuthUser) {
+      const ordersCol = collection(firestoreDb, 'stores', storeId, 'orders');
+      const unsubOrders = onSnapshot(ordersCol, async (snapshot) => {
+        for (const change of snapshot.docChanges()) {
+          const changeData = change.doc.data() as any;
+          if (change.type === 'removed' || changeData?.isDeleted) {
+            await localDb.orders.delete(change.doc.id);
+          }
         }
-      });
-      if (remoteOrders.length > 0) {
-        await localDb.transaction('rw', [localDb.orders, localDb.orderItems], async () => {
-          for (const ro of remoteOrders) {
-            const local = await localDb.orders.get(ro.orderId);
-            if (!local || !local.updatedAt || (ro.updatedAt && ro.updatedAt >= local.updatedAt)) {
-              await localDb.orders.put(ro);
-              if (ro.items && ro.items.length > 0) {
-                const itemsToSave: OrderItem[] = ro.items.map((it, idx) => ({
-                  ...it,
-                  id: `${ro.orderId}-item-${idx}`,
-                  orderId: ro.orderId,
-                  createdAt: ro.createdAt || new Date().toISOString(),
-                }));
-                await localDb.orderItems.bulkPut(itemsToSave);
+
+        const remoteOrders: Order[] = [];
+        snapshot.forEach(d => {
+          const data = d.data() as any;
+          if (!data.orderId) data.orderId = d.id;
+          if (!data.id) data.id = d.id;
+          if (!data.isDeleted) {
+            remoteOrders.push(data as Order);
+          }
+        });
+        if (remoteOrders.length > 0) {
+          await localDb.transaction('rw', [localDb.orders, localDb.orderItems], async () => {
+            for (const ro of remoteOrders) {
+              const local = await localDb.orders.get(ro.orderId);
+              if (!local || !local.updatedAt || (ro.updatedAt && ro.updatedAt >= local.updatedAt)) {
+                await localDb.orders.put(ro);
+                if (ro.items && ro.items.length > 0) {
+                  const itemsToSave: OrderItem[] = ro.items.map((it, idx) => ({
+                    ...it,
+                    id: `${ro.orderId}-item-${idx}`,
+                    orderId: ro.orderId,
+                    createdAt: ro.createdAt || new Date().toISOString(),
+                  }));
+                  await localDb.orderItems.bulkPut(itemsToSave);
+                }
               }
             }
+          });
+        }
+      }, (err) => console.warn('[SyncEngine] Orders listener error:', err));
+      activeListeners.push(unsubOrders);
+
+      // 3. Expenses listener (Private store subcollection)
+      const expensesCol = collection(firestoreDb, 'stores', storeId, 'expenses');
+      const unsubExpenses = onSnapshot(expensesCol, async (snapshot) => {
+        for (const change of snapshot.docChanges()) {
+          const changeData = change.doc.data() as any;
+          if (change.type === 'removed' || changeData?.isDeleted) {
+            await localDb.expenses.delete(change.doc.id);
+          }
+        }
+
+        const remoteExpenses: Expense[] = [];
+        snapshot.forEach(d => {
+          const data = d.data() as any;
+          if (!data.id) data.id = d.id;
+          if (!data.isDeleted) {
+            remoteExpenses.push(data as Expense);
           }
         });
-      }
-    }, (err) => console.warn('[SyncEngine] Orders listener error:', err));
-    activeListeners.push(unsubOrders);
-
-    // 3. Expenses listener
-    const expensesCol = collection(firestoreDb, 'stores', storeId, 'expenses');
-    const unsubExpenses = onSnapshot(expensesCol, async (snapshot) => {
-      for (const change of snapshot.docChanges()) {
-        const changeData = change.doc.data() as any;
-        if (change.type === 'removed' || changeData?.isDeleted) {
-          await localDb.expenses.delete(change.doc.id);
-        }
-      }
-
-      const remoteExpenses: Expense[] = [];
-      snapshot.forEach(d => {
-        const data = d.data() as any;
-        if (!data.id) data.id = d.id;
-        if (!data.isDeleted) {
-          remoteExpenses.push(data as Expense);
-        }
-      });
-      if (remoteExpenses.length > 0) {
-        await localDb.transaction('rw', localDb.expenses, async () => {
-          for (const re of remoteExpenses) {
-            const local = await localDb.expenses.get(re.id);
-            if (!local || !local.updatedAt || (re.updatedAt && re.updatedAt >= local.updatedAt)) {
-              await localDb.expenses.put(re);
+        if (remoteExpenses.length > 0) {
+          await localDb.transaction('rw', localDb.expenses, async () => {
+            for (const re of remoteExpenses) {
+              const local = await localDb.expenses.get(re.id);
+              if (!local || !local.updatedAt || (re.updatedAt && re.updatedAt >= local.updatedAt)) {
+                await localDb.expenses.put(re);
+              }
             }
-          }
-        });
-      }
-    }, (err) => console.warn('[SyncEngine] Expenses listener error:', err));
-    activeListeners.push(unsubExpenses);
+          });
+        }
+      }, (err) => console.warn('[SyncEngine] Expenses listener error:', err));
+      activeListeners.push(unsubExpenses);
+    }
 
     // 4. Pending Orders listener
     const pendingCol = collection(firestoreDb, 'stores', storeId, 'pendingOrders');
@@ -404,67 +408,69 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
     }, (err) => console.warn('[SyncEngine] Inventory listener error:', err));
     activeListeners.push(unsubInv);
 
-    // 7. Shifts listener
-    const shiftsCol = collection(firestoreDb, 'stores', storeId, 'shifts');
-    const unsubShifts = onSnapshot(shiftsCol, async (snapshot) => {
-      for (const change of snapshot.docChanges()) {
-        const changeData = change.doc.data() as any;
-        if (change.type === 'removed' || changeData?.isDeleted) {
-          await localDb.shifts.delete(change.doc.id);
+    // 7. Shifts listener (Private store subcollection)
+    if (isAuthUser) {
+      const shiftsCol = collection(firestoreDb, 'stores', storeId, 'shifts');
+      const unsubShifts = onSnapshot(shiftsCol, async (snapshot) => {
+        for (const change of snapshot.docChanges()) {
+          const changeData = change.doc.data() as any;
+          if (change.type === 'removed' || changeData?.isDeleted) {
+            await localDb.shifts.delete(change.doc.id);
+          }
         }
-      }
 
-      const remoteShifts: StaffShift[] = [];
-      snapshot.forEach(d => {
-        const data = d.data() as any;
-        if (!data.id) data.id = d.id;
-        if (!data.isDeleted) {
-          remoteShifts.push(data as StaffShift);
-        }
-      });
-      if (remoteShifts.length > 0) {
-        await localDb.transaction('rw', localDb.shifts, async () => {
-          for (const rs of remoteShifts) {
-            const local = await localDb.shifts.get(rs.id);
-            if (!local || !local.updatedAt || (rs.updatedAt && rs.updatedAt >= local.updatedAt)) {
-              await localDb.shifts.put(rs);
-            }
+        const remoteShifts: StaffShift[] = [];
+        snapshot.forEach(d => {
+          const data = d.data() as any;
+          if (!data.id) data.id = d.id;
+          if (!data.isDeleted) {
+            remoteShifts.push(data as StaffShift);
           }
         });
-      }
-    }, (err) => console.warn('[SyncEngine] Shifts listener error:', err));
-    activeListeners.push(unsubShifts);
-
-    // 8. Distributions listener
-    const distCol = collection(firestoreDb, 'stores', storeId, 'distributions');
-    const unsubDist = onSnapshot(distCol, async (snapshot) => {
-      for (const change of snapshot.docChanges()) {
-        const changeData = change.doc.data() as any;
-        if (change.type === 'removed' || changeData?.isDeleted) {
-          await localDb.distributions.delete(change.doc.id);
-        }
-      }
-
-      const remoteDist: MonthlyDistributionConfig[] = [];
-      snapshot.forEach(d => {
-        const data = d.data() as any;
-        if (!data.month) data.month = d.id;
-        if (!data.isDeleted) {
-          remoteDist.push(data as MonthlyDistributionConfig);
-        }
-      });
-      if (remoteDist.length > 0) {
-        await localDb.transaction('rw', localDb.distributions, async () => {
-          for (const rd of remoteDist) {
-            const local = await localDb.distributions.get(rd.month);
-            if (!local || !local.updatedAt || (rd.updatedAt && rd.updatedAt >= local.updatedAt)) {
-              await localDb.distributions.put(rd);
+        if (remoteShifts.length > 0) {
+          await localDb.transaction('rw', localDb.shifts, async () => {
+            for (const rs of remoteShifts) {
+              const local = await localDb.shifts.get(rs.id);
+              if (!local || !local.updatedAt || (rs.updatedAt && rs.updatedAt >= local.updatedAt)) {
+                await localDb.shifts.put(rs);
+              }
             }
+          });
+        }
+      }, (err) => console.warn('[SyncEngine] Shifts listener error:', err));
+      activeListeners.push(unsubShifts);
+
+      // 8. Distributions listener (Private store subcollection)
+      const distCol = collection(firestoreDb, 'stores', storeId, 'distributions');
+      const unsubDist = onSnapshot(distCol, async (snapshot) => {
+        for (const change of snapshot.docChanges()) {
+          const changeData = change.doc.data() as any;
+          if (change.type === 'removed' || changeData?.isDeleted) {
+            await localDb.distributions.delete(change.doc.id);
+          }
+        }
+
+        const remoteDist: MonthlyDistributionConfig[] = [];
+        snapshot.forEach(d => {
+          const data = d.data() as any;
+          if (!data.month) data.month = d.id;
+          if (!data.isDeleted) {
+            remoteDist.push(data as MonthlyDistributionConfig);
           }
         });
-      }
-    }, (err) => console.warn('[SyncEngine] Distributions listener error:', err));
-    activeListeners.push(unsubDist);
+        if (remoteDist.length > 0) {
+          await localDb.transaction('rw', localDb.distributions, async () => {
+            for (const rd of remoteDist) {
+              const local = await localDb.distributions.get(rd.month);
+              if (!local || !local.updatedAt || (rd.updatedAt && rd.updatedAt >= local.updatedAt)) {
+                await localDb.distributions.put(rd);
+              }
+            }
+          });
+        }
+      }, (err) => console.warn('[SyncEngine] Distributions listener error:', err));
+      activeListeners.push(unsubDist);
+    }
 
     // 9. Real-time Store Settings (Store Info, Addons, Pre-order Open/Close)
     const settingsDocRef = doc(firestoreDb, 'stores', storeId, 'meta', 'settings');
@@ -525,6 +531,13 @@ export function stopRealtimeSync(): void {
 
 // Automatically start continuous sync periodic timer and lifecycle event listeners
 if (typeof window !== 'undefined') {
+  // Re-sync on auth state changes (e.g. Google Login/Logout)
+  subscribeToAuth((user) => {
+    if (user && currentSubscribedStoreId) {
+      startRealtimeSync(currentSubscribedStoreId);
+    }
+  });
+
   // Re-sync on network connection restored
   window.addEventListener('online', () => {
     triggerSync();
