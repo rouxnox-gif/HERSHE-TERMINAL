@@ -82,13 +82,34 @@ service cloud.firestore {
       }
 
       // Pending Orders subcollection:
-      // Public customers may create a customer pre-order with basic validation.
+      // Public customers may create a customer pre-order with strict document validation.
       // Customers CANNOT read other customers' pending orders, nor update/delete.
       // Store members have full management access.
       match /pendingOrders/{pendingId} {
-        allow create: if request.resource.data.orderId is string &&
-                         request.resource.data.totalAmount is number &&
-                         request.resource.data.totalAmount >= 0;
+        allow create: if isStoreMember(storeId) || (
+          // Public customer pre-order creation validation:
+          // 1. Must be a brand-new document (cannot overwrite existing pending orders)
+          resource == null &&
+          // 2. ID matches document path
+          request.resource.data.orderId == pendingId &&
+          request.resource.data.orderId is string &&
+          // 3. Targeted store matches path
+          (!('storeId' in request.resource.data) || request.resource.data.storeId == storeId) &&
+          // 4. Required fields and structure
+          request.resource.data.date is string &&
+          request.resource.data.time is string &&
+          request.resource.data.totalAmount is number &&
+          request.resource.data.totalAmount >= 0 &&
+          request.resource.data.items is list &&
+          request.resource.data.items.size() > 0 &&
+          // 5. Source identifies customer pre-order
+          (request.resource.data.orderSource == 'customer_preorder' || 
+           (request.resource.data.source is string && request.resource.data.source.matches('(?i).*customer.*'))) &&
+          // 6. Customer cannot submit already approved/completed order
+          request.resource.data.status == 'pending' &&
+          // 7. Customer cannot set inventoryDeducted to true
+          request.resource.data.inventoryDeducted == false
+        );
         allow read, update, delete: if isStoreMember(storeId);
       }
 

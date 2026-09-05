@@ -1,0 +1,34 @@
+# Cloudflare Pages / Static Hosting HTTP Cache Rules
+
+# 1. Default for all HTML navigations and root routes
+/*
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+  X-Content-Type-Options: nosniff
+
+# 2. Service Worker scripts - MUST NEVER BE CACHED
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+
+/registerSW.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+
+# 3. Entry HTML document
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+
+# 4. Web App Manifest
+/manifest.webmanifest
+  Cache-Control: no-cache, must-revalidate
+  Pragma: no-cache
+
+# 5. Hashed JS/CSS bundles - safe to cache immutably for 1 year
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

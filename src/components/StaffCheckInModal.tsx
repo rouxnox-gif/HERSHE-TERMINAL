@@ -1,18 +1,16 @@
 import React, { useState } from 'react';
 import { UserRole, UserSession, StaffShift } from '../types';
 import { getBruneiDateString } from '../data/initialData';
-import { LogIn, UserCheck, ShieldCheck, User, Sparkles, Clock, KeyRound, ShoppingBag } from 'lucide-react';
+import { LogIn, UserCheck, ShieldCheck, User, Sparkles, Clock, KeyRound } from 'lucide-react';
 
 interface StaffCheckInModalProps {
   onCheckIn: (session: UserSession, newShift: StaffShift) => void;
   activeShiftCount?: number;
-  onOpenCustomerPortal?: () => void;
 }
 
 export const StaffCheckInModal: React.FC<StaffCheckInModalProps> = ({
   onCheckIn,
   activeShiftCount = 0,
-  onOpenCustomerPortal,
 }) => {
   const [inputName, setInputName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -171,20 +169,6 @@ export const StaffCheckInModal: React.FC<StaffCheckInModalProps> = ({
             <LogIn className="w-4 h-4" />
             <span>{detectedAdmin ? 'Check In as Admin' : 'Start Staff Shift & Open Terminal'}</span>
           </button>
-
-          {/* Direct Customer Menu Access (No Sign-In Required) */}
-          {onOpenCustomerPortal && (
-            <div className="pt-3 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={onOpenCustomerPortal}
-                className="w-full py-2.5 px-4 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-extrabold text-xs flex items-center justify-center gap-2 transition cursor-pointer active:scale-98 shadow-sm group"
-              >
-                <ShoppingBag className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-                <span>Open Customer Menu & Pre-Order (No Sign-In Required)</span>
-              </button>
-            </div>
-          )}
         </form>
 
         {activeShiftCount > 0 && (

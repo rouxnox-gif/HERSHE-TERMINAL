@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TabType, PaymentTypeConfig, StoreInfoSettings } from '../types';
+import { APP_VERSION, BUILD_ID } from '../version';
 import {
   ALL_APP_TABS,
   DEFAULT_PAYMENT_CONFIGS,
@@ -462,6 +463,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <Sparkles className="w-4 h-4 text-emerald-400" />
             <span className="hidden sm:inline">Settings update live and persist across devices</span>
             <span className="sm:hidden">Settings auto-save</span>
+            <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 ml-1">v{APP_VERSION}</span>
           </div>
 
           <button

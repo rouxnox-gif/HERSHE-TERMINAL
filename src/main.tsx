@@ -2,7 +2,11 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { initPWAUpdateOrchestrator } from './pwaUpdate.ts';
 import './index.css';
+
+// Initialize PWA Service Worker update lifecycle and cache management
+initPWAUpdateOrchestrator();
 
 // Filter out benign browser-extension errors (e.g. MetaMask, Web3 wallet injection in iframes)
 if (typeof window !== 'undefined') {
@@ -44,20 +48,6 @@ if (typeof window !== 'undefined') {
     },
     true
   );
-}
-
-// Register Service Worker for offline PWA functionality
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js')
-      .then((reg) => {
-        console.log('[PWA] Service Worker registered with scope:', reg.scope);
-      })
-      .catch((err) => {
-        console.warn('[PWA] Service Worker registration failed:', err);
-      });
-  });
 }
 
 createRoot(document.getElementById('root')!).render(

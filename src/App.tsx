@@ -584,10 +584,6 @@ export default function App() {
         <StaffCheckInModal
           onCheckIn={handleCheckIn}
           activeShiftCount={shifts.length}
-          onOpenCustomerPortal={() => {
-            setIsCustomerPortalUrl(true);
-            setActiveTab('customer');
-          }}
         />
       )}
 

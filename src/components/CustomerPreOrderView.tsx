@@ -658,8 +658,9 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
         customerNotes: customerNotes.trim(),
         pickupTime: resolvedPickupTime,
         status: 'pending',
+        orderSource: 'customer_preorder',
         items: pendingItems,
-        inventoryDeducted: true,
+        inventoryDeducted: false,
         createdAt: nowIso,
         updatedAt: nowIso,
       };
