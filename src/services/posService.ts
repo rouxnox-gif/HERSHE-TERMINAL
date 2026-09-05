@@ -714,6 +714,7 @@ export async function saveProduct(product: Product): Promise<Product> {
       inv.productName.toLowerCase().trim() === product.name.toLowerCase().trim()
     );
 
+    // If an inventory item is already tracked for this product, keep its name in sync
     if (existingInv) {
       if (existingInv.productName !== product.name) {
         const updatedInvItem: InventoryItem = {
@@ -731,30 +732,9 @@ export async function saveProduct(product: Product): Promise<Product> {
           operationId: `sync-inv-name-${existingInv.id}-${Date.now()}`,
         });
       }
-    } else {
-      const invId = `inv-${id}`;
-      const newInvItem: InventoryItem = {
-        id: invId,
-        productName: product.name,
-        currentStock: 20,
-        unit: 'bottles',
-        lowStockThreshold: 5,
-        costPerUnit: Math.round((product.price * 0.4) * 100) / 100 || 1.50,
-        lastRestockedDate: todayStr,
-        lastRestockedQty: 20,
-        updatedAt: nowIso,
-        deviceId,
-      };
-      await db.inventory.put(newInvItem);
-      await enqueueSyncItem({
-        entityType: 'inventoryItem',
-        entityId: invId,
-        operation: 'UPDATE',
-        payload: newInvItem,
-        deviceId,
-        operationId: `sync-inv-${invId}-${Date.now()}`,
-      });
     }
+    // Note: Do NOT auto-create inventory items with default 20 btl when adding or editing drinks.
+    // The inventory list remains clean and empty until the user explicitly adds items.
   });
 
   triggerSync();
@@ -871,13 +851,13 @@ export async function clearAllProducts(): Promise<void> {
  * Reconciles inventory items with the active terminal drink menu.
  * Rules:
  * 1. If there's no menu available (0 products), inventory MUST be none!
- * 2. If menu exists, inventory items must match the menu items.
+ * 2. If menu exists, DO NOT auto-generate synthetic inventory items with default stock!
+ *    The inventory list remains empty until the user explicitly adds an item.
+ * 3. Purges any legacy auto-generated synthetic inventory items (e.g. invId starting with inv-prod- with 20 btl)
+ *    and removes orphan items whose menu drink was deleted.
  */
 export async function reconcileInventoryWithProducts(activeProducts: Product[]): Promise<void> {
   const deviceId = await getOrCreateDeviceId();
-  const nowIso = new Date().toISOString();
-  const todayStr = getBruneiDateString();
-
   const productsList = (activeProducts || []).filter(p => !p.isDeleted);
   const allInventory = await db.inventory.toArray();
 
@@ -902,20 +882,26 @@ export async function reconcileInventoryWithProducts(activeProducts: Product[]):
     return;
   }
 
-  // Rule 2: If menu exists, inventory items must reflect the menu items
+  // Rule 2: Clean up any auto-generated synthetic inventory items created by legacy auto-fill
+  // that were automatically injected with default 20 btl, and remove orphans whose drinks were deleted.
   const menuNames = new Set(productsList.map(p => p.name.toLowerCase().trim()));
-  const itemsToDelete = allInventory.filter(inv => !menuNames.has(inv.productName.toLowerCase().trim()));
+  const syntheticItems = allInventory.filter(inv =>
+    (inv.id.startsWith('inv-prod-') || inv.id.startsWith('inv-p')) &&
+    inv.lastRestockedQty === 20 &&
+    inv.currentStock === 20
+  );
+  const orphanItems = allInventory.filter(inv => !menuNames.has(inv.productName.toLowerCase().trim()));
 
-  const existingInvNames = new Set(allInventory.map(inv => inv.productName.toLowerCase().trim()));
-  const productsToAdd = productsList.filter(p => !existingInvNames.has(p.name.toLowerCase().trim()));
+  const itemsToDeleteMap = new Map<string, InventoryItem>();
+  syntheticItems.forEach(i => itemsToDeleteMap.set(i.id, i));
+  orphanItems.forEach(i => itemsToDeleteMap.set(i.id, i));
+  const itemsToDelete = Array.from(itemsToDeleteMap.values());
 
-  if (itemsToDelete.length === 0 && productsToAdd.length === 0) {
-    // Already synchronized
+  if (itemsToDelete.length === 0) {
     return;
   }
 
   await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
-    // Remove orphan inventory items that aren't on the menu
     for (const item of itemsToDelete) {
       await db.inventory.delete(item.id);
       await enqueueSyncItem({
@@ -925,32 +911,6 @@ export async function reconcileInventoryWithProducts(activeProducts: Product[]):
         payload: { id: item.id },
         deviceId,
         operationId: `sync-del-inv-${item.id}-${Date.now()}`,
-      });
-    }
-
-    // Add inventory items for drinks on the menu missing from inventory
-    for (const prod of productsToAdd) {
-      const invId = `inv-${prod.id}`;
-      const newInvItem: InventoryItem = {
-        id: invId,
-        productName: prod.name,
-        currentStock: 20,
-        unit: 'bottles',
-        lowStockThreshold: 5,
-        costPerUnit: Math.round((prod.price * 0.4) * 100) / 100 || 1.50,
-        lastRestockedDate: todayStr,
-        lastRestockedQty: 20,
-        updatedAt: nowIso,
-        deviceId,
-      };
-      await db.inventory.put(newInvItem);
-      await enqueueSyncItem({
-        entityType: 'inventoryItem',
-        entityId: invId,
-        operation: 'UPDATE',
-        payload: newInvItem,
-        deviceId,
-        operationId: `sync-inv-${invId}-${Date.now()}`,
       });
     }
   });

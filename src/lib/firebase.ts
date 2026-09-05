@@ -13,8 +13,6 @@ import {
   initializeFirestore, 
   getFirestore, 
   Firestore,
-  doc,
-  getDocFromServer
 } from 'firebase/firestore';
 import defaultAppletConfig from '../../firebase-applet-config.json';
 
@@ -45,12 +43,16 @@ if (typeof window !== 'undefined') {
 
 const config = resolvedFirebaseConfig as any;
 
-// Initialize Firestore with forced long polling for robust iframe / sandbox / network proxy connectivity
+// Initialize Firestore with auto-detect long polling for optimal connection resilience across networks & sandboxes
 let firestoreInstance: Firestore;
+const firestoreSettings = {
+  experimentalAutoDetectLongPolling: true,
+};
+
 try {
   firestoreInstance = config.firestoreDatabaseId
-    ? initializeFirestore(app, { experimentalForceLongPolling: true }, config.firestoreDatabaseId)
-    : initializeFirestore(app, { experimentalForceLongPolling: true });
+    ? initializeFirestore(app, firestoreSettings, config.firestoreDatabaseId)
+    : initializeFirestore(app, firestoreSettings);
 } catch {
   firestoreInstance = config.firestoreDatabaseId
     ? getFirestore(app, config.firestoreDatabaseId)
@@ -58,18 +60,6 @@ try {
 }
 
 export const db = firestoreInstance;
-
-// Validate Connection to Firestore on startup
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'public', 'connection_health'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
-}
-testConnection();
 
 export enum OperationType {
   CREATE = 'create',
