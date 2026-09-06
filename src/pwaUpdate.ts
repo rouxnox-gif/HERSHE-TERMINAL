@@ -29,6 +29,17 @@ export function initPWAUpdateOrchestrator(): void {
 
   // 2. Service Worker registration and lifecycle management
   if ('serviceWorker' in navigator) {
+    // In local/container development mode, do not register production sw.js
+    // Unregister any leftover workers to prevent dev server asset conflicts and abort errors
+    if (import.meta.env.DEV) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const reg of registrations) {
+          reg.unregister().catch(() => {});
+        }
+      }).catch(() => {});
+      return;
+    }
+
     let hasRefreshed = false;
 
     // Reload the page once the new Service Worker takes control of the page

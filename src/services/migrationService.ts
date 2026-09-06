@@ -42,10 +42,22 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
     }
   }
 
-  // Check if DB already has inventory
-  const invCount = await db.inventory.count();
+  // Purge any lingering synthetic 20 btl records from DB immediately on boot
+  try {
+    const allInv = await db.inventory.toArray();
+    const synthetic = allInv.filter(inv =>
+      (inv.id.startsWith('inv-prod-') || inv.id.startsWith('inv-legacy-') || inv.id.startsWith('inv-p')) &&
+      inv.currentStock === 20
+    );
+    if (synthetic.length > 0) {
+      await db.inventory.bulkDelete(synthetic.map(s => s.id));
+    }
+  } catch (e) {
+    console.warn('[MigrationService] Pre-check inventory purge notice:', e);
+  }
 
-  if (isMigrated && invCount > 0) {
+  // Once migrated, never re-run migration on refresh regardless of whether inventory is empty
+  if (isMigrated) {
     return; // Already initialized and verified
   }
 
@@ -61,6 +73,11 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
     const raw = localStorage.getItem(OLD_STORAGE_KEY);
     if (raw) {
       oldData = JSON.parse(raw);
+      // Clean legacy inventory from old storage backup so it cannot re-inject 20 btl items
+      if (oldData && oldData.inventory) {
+        oldData.inventory = [];
+        localStorage.setItem(OLD_STORAGE_KEY, JSON.stringify(oldData));
+      }
     }
   } catch (err) {
     console.warn('[MigrationService] Error reading old localStorage data:', err);
@@ -92,21 +109,9 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
       await db.products.bulkPut(prods);
     }
 
-    // 2. Inventory (Deterministic IDs)
-    if (oldData && Array.isArray(oldData.inventory) && oldData.inventory.length > 0) {
-      const invs: InventoryItem[] = oldData.inventory.map((i: any, idx: number) => {
-        const fallbackNameHash = (i.productName || 'item').toLowerCase().replace(/\s+/g, '_');
-        return {
-          ...i,
-          id: i.id || `inv-legacy-${idx}-${fallbackNameHash}`,
-          updatedAt: i.updatedAt || new Date().toISOString(),
-          deviceId,
-        };
-      });
-      await db.inventory.bulkPut(invs);
-    } else if (invCount === 0) {
-      await db.inventory.bulkPut(DEFAULT_INVENTORY.map(i => ({ ...i, deviceId, updatedAt: new Date().toISOString() })));
-    }
+    // 2. Inventory: Opt-in only. Do NOT migrate synthetic default 20 btl items.
+    // The inventory list remains completely empty until the user explicitly adds items.
+    // (DEFAULT_INVENTORY is empty, so no automatic items are created)
 
     // 3. Orders
     if (oldData && Array.isArray(oldData.orders) && oldData.orders.length > 0) {
@@ -214,9 +219,6 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
   const activeProds = allProds.filter(p => !p.isDeleted);
   await reconcileInventoryWithProducts(activeProds);
 
-  // Verify verification before committing completion flag
-  const verifiedProducts = await db.products.count();
-  if (verifiedProducts > 0) {
-    localStorage.setItem(MIGRATION_FLAG_KEY, 'true');
-  }
+  // Commit migration completion flag so initialization only runs once
+  localStorage.setItem(MIGRATION_FLAG_KEY, 'true');
 }

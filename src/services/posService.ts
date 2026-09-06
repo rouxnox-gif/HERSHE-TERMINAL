@@ -886,8 +886,7 @@ export async function reconcileInventoryWithProducts(activeProducts: Product[]):
   // that were automatically injected with default 20 btl, and remove orphans whose drinks were deleted.
   const menuNames = new Set(productsList.map(p => p.name.toLowerCase().trim()));
   const syntheticItems = allInventory.filter(inv =>
-    (inv.id.startsWith('inv-prod-') || inv.id.startsWith('inv-p')) &&
-    inv.lastRestockedQty === 20 &&
+    (inv.id.startsWith('inv-prod-') || inv.id.startsWith('inv-p') || inv.id.startsWith('inv-legacy-')) &&
     inv.currentStock === 20
   );
   const orphanItems = allInventory.filter(inv => !menuNames.has(inv.productName.toLowerCase().trim()));

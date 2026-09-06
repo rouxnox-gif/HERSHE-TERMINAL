@@ -43,10 +43,10 @@ if (typeof window !== 'undefined') {
 
 const config = resolvedFirebaseConfig as any;
 
-// Initialize Firestore with auto-detect long polling for optimal connection resilience across networks & sandboxes
+// Initialize Firestore with forced long polling for optimal connection resilience across Cloud Run proxies & sandboxed iframes
 let firestoreInstance: Firestore;
 const firestoreSettings = {
-  experimentalAutoDetectLongPolling: true,
+  experimentalForceLongPolling: true,
 };
 
 try {
