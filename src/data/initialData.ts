@@ -48,6 +48,26 @@ const todayStr = getBruneiDateString();
 
 export const DEFAULT_INVENTORY: InventoryItem[] = [];
 
+/**
+ * Known legacy synthetic inventory record IDs created by early auto-fill or template seeds.
+ * A product in the Drink Menu must NEVER automatically create an InventoryItem.
+ * Only explicit user actions in the Inventory management tab create legitimate InventoryItems.
+ */
+export const KNOWN_LEGACY_SYNTHETIC_IDS = new Set<string>([
+  'inv-p1', 'inv-p2', 'inv-p3', 'inv-p4', 'inv-p5', 'inv-p6', 'inv-p7', 'inv-p8',
+  'inv-prod-p1', 'inv-prod-p2', 'inv-prod-p3', 'inv-prod-p4', 'inv-prod-p5', 'inv-prod-p6', 'inv-prod-p7', 'inv-prod-p8',
+  'inv-1', 'inv-2', 'inv-3', 'inv-4',
+]);
+
+export function isLegacySyntheticInventoryId(id: string): boolean {
+  if (!id || typeof id !== 'string') return false;
+  if (KNOWN_LEGACY_SYNTHETIC_IDS.has(id)) return true;
+  if (id.startsWith('inv-legacy-') || id.startsWith('inv-prod-legacy-')) return true;
+  // Specific pattern for old default template products: inv-p1..p8 or inv-prod-p1..p8
+  if (/^inv-(prod-)?p[1-8]$/.test(id)) return true;
+  return false;
+}
+
 export const INITIAL_EXPENSES: Expense[] = [
   { id: 'exp-1', date: todayStr, description: 'Fresh Whole Milk & Dairy Supplies', paymentType: 'Cash', amount: 48.50 },
   { id: 'exp-2', date: todayStr, description: 'Ice Delivery & Fresh Strawberries', paymentType: 'Card Lulu', amount: 65.00 },

@@ -49,11 +49,16 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
     return DEFAULT_PAYMENT_CONFIGS;
   }, [paymentConfigs]);
 
-  // Inventory lookup by product name
+  // Inventory lookup by product name and product id
   const inventoryMap = useMemo(() => {
     const map = new Map<string, InventoryItem>();
     inventory.forEach(item => {
-      map.set(item.productName.toLowerCase().trim(), item);
+      if (item.productName) {
+        map.set(item.productName.toLowerCase().trim(), item);
+      }
+      if (item.id) {
+        map.set(item.id.toLowerCase().trim(), item);
+      }
     });
     return map;
   }, [inventory]);
@@ -573,11 +578,12 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
               </div>
             ) : (
               filteredProducts.map(p => {
-                const invItem = inventoryMap.get(p.name.toLowerCase().trim());
+                const invItem = inventoryMap.get(p.name.toLowerCase().trim()) || (p.id ? inventoryMap.get(p.id.toLowerCase().trim()) : undefined);
                 const hasStockTracking = invItem !== undefined;
-                const currentStock = invItem ? invItem.currentStock : null;
-                const isOutOfStock = hasStockTracking && currentStock === 0;
-                const isLowStock = hasStockTracking && currentStock !== null && currentStock <= invItem.lowStockThreshold && currentStock > 0;
+                const stock = invItem ? (Number(invItem.currentStock) || 0) : 0;
+                const isOutOfStock = hasStockTracking && stock === 0;
+                const isLowStock = hasStockTracking && stock <= invItem.lowStockThreshold && stock > 0;
+                const unit = invItem?.unit === 'shots' ? 'sh' : 'btl';
 
                 return (
                   <div
@@ -610,7 +616,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                     <div className="flex items-center justify-between gap-1 mt-auto pt-1">
                       {/* Inventory Stock Pill & Addon Indicator */}
                       <div className="flex items-center gap-1 flex-wrap">
-                        {hasStockTracking && currentStock !== null && (
+                        {hasStockTracking && (
                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 ${
                             isOutOfStock
                               ? 'bg-red-500/20 text-red-400 border border-red-500/30'
@@ -621,7 +627,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                             <span className={`w-1 h-1 rounded-full ${
                               isOutOfStock ? 'bg-red-400' : isLowStock ? 'bg-amber-400' : 'bg-emerald-400'
                             }`} />
-                            {currentStock} {invItem.unit === 'shots' ? 'sh' : 'btl'}
+                            {stock} {unit}
                           </span>
                         )}
 

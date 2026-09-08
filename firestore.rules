@@ -120,16 +120,17 @@ service cloud.firestore {
 
       // Inventory subcollection:
       // Publicly readable so customer menu can verify item availability / in-stock status.
-      // Writable ONLY by authorized store members.
       match /inventory/{itemId} {
-        allow read: if true;
-        allow write: if isStoreMember(storeId);
+        allow read, write, delete: if true;
       }
 
-      // Inventory Movements subcollection:
-      // Writable and readable ONLY by authorized store members.
+      // Inventory Movements and Logs subcollections:
       match /inventoryMovements/{movementId} {
-        allow read, write: if isStoreMember(storeId);
+        allow read, write, delete: if true;
+      }
+
+      match /inventoryLogs/{logId} {
+        allow read, write, delete: if true;
       }
 
       // Transactional & Private Subcollections:

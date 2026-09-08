@@ -79,7 +79,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   const [newItemModalOpen, setNewItemModalOpen] = useState(false);
   const [newProductName, setNewProductName] = useState('');
-  const [newCurrentStock, setNewCurrentStock] = useState('20');
+  const [newCurrentStock, setNewCurrentStock] = useState('0');
   const [newUnit, setNewUnit] = useState('bottles');
   const [newThreshold, setNewThreshold] = useState('5');
   const [newCost, setNewCost] = useState('1.50');
@@ -388,7 +388,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     onUpdateInventory([newItem, ...inventory], [initialLog, ...inventoryLogs]);
     setNewItemModalOpen(false);
     setNewProductName('');
-    setNewCurrentStock('20');
+    setNewCurrentStock('0');
     setNewCost('');
     showToast(`Added "${matchedProduct.name}" to inventory checking (${initialStock} ${unit})`);
   };
@@ -1610,6 +1610,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         min="0"
                         value={newCurrentStock}
                         onChange={(e) => setNewCurrentStock(e.target.value)}
+                        placeholder="0"
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-emerald-400 font-bold focus:outline-none"
                       />
                     </div>

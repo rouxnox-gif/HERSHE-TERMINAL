@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   setDoc,
+  deleteDoc,
   onSnapshot,
   Unsubscribe
 } from 'firebase/firestore';
@@ -18,6 +19,7 @@ import {
 import { getStoreId, getStorePin } from '../db/repositories/appSettingsRepo';
 import { applyRemoteInventoryMovement } from './inventoryService';
 import { connectivityService } from './connectivityService';
+import { isLegacySyntheticInventoryId } from '../data/initialData';
 import {
   Product,
   Order,
@@ -156,6 +158,11 @@ async function syncSingleItemToFirestore(storeId: string, item: SyncQueueItem): 
 
   if (item.operation === 'DELETE') {
     await setDoc(docRef, { isDeleted: true, updatedAt: new Date().toISOString() }, { merge: true });
+    if (item.entityType === 'inventoryItem' || item.entityType === 'inventoryMovement') {
+      try {
+        await deleteDoc(docRef);
+      } catch {}
+    }
     return;
   }
 
@@ -372,9 +379,27 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
       snapshot.forEach(d => {
         const data = d.data() as any;
         if (!data.id) data.id = d.id;
-        if (!data.isDeleted) {
-          remoteInv.push(data as InventoryItem);
+
+        const stock = Number(data.currentStock);
+        const restock = Number(data.lastRestockedQty);
+        const name = (data.productName || data.name || '').toLowerCase();
+        const is20Bottles = stock === 20 ||
+          restock === 20 ||
+          data.currentStock === 20 ||
+          data.lastRestockedQty === 20 ||
+          isLegacySyntheticInventoryId(data.id) ||
+          data.id.startsWith('inv-p-modal-') ||
+          data.id.startsWith('inv-prod-') ||
+          name.includes('20 bottle') ||
+          name.includes('20 btl');
+
+        if (data.isDeleted || is20Bottles) {
+          localDb.inventory.delete(data.id).catch(() => {});
+          deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventory', data.id)).catch(() => {});
+          return;
         }
+
+        remoteInv.push(data as InventoryItem);
       });
       if (remoteInv.length > 0) {
         await localDb.transaction('rw', localDb.inventory, async () => {

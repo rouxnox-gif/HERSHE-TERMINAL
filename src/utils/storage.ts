@@ -1,5 +1,5 @@
 import { Product, Order, Expense, PendingOrder, PeriodReport, AccountBalances, DailyAccountBreakdown, StaffShift, UserSession, MonthlyDistributionConfig, InventoryItem, InventoryLog } from '../types';
-import { INITIAL_PRODUCTS, INITIAL_EXPENSES, INITIAL_SALES, INITIAL_PENDING_ORDERS, DEFAULT_INVENTORY, getBruneiDateString, getBruneiMonthString, getBruneiTimeString, getDefaultMonthlyDistribution } from '../data/initialData';
+import { INITIAL_PRODUCTS, INITIAL_EXPENSES, INITIAL_SALES, INITIAL_PENDING_ORDERS, DEFAULT_INVENTORY, getBruneiDateString, getBruneiMonthString, getBruneiTimeString, getDefaultMonthlyDistribution, isLegacySyntheticInventoryId } from '../data/initialData';
 
 const STORAGE_KEY = 'hershe_pos_app_data_v4';
 
@@ -37,21 +37,26 @@ export function loadStorageData(): StorageData {
     }
     const parsed = JSON.parse(raw);
     
-    // Ensure all 4 key tracked items (Beetboost, Green Detox, Orange Sunrise, Gingershot) exist in inventory
-    let existingInventory: InventoryItem[] = Array.isArray(parsed.inventory) ? parsed.inventory : [];
-    if (existingInventory.length === 0) {
-      existingInventory = DEFAULT_INVENTORY;
-    } else {
-      // If any of the 4 default items are missing, add them seamlessly
-      DEFAULT_INVENTORY.forEach(defItem => {
-        const found = existingInventory.some(
-          it => it.productName.toLowerCase().trim() === defItem.productName.toLowerCase().trim()
-        );
-        if (!found) {
-          existingInventory.push(defItem);
-        }
-      });
-    }
+    // Filter out any legacy synthetic items and items consisting of 20 bottles from legacy storage backups
+    const existingInventory: InventoryItem[] = Array.isArray(parsed.inventory)
+      ? parsed.inventory.filter((it: InventoryItem) => {
+          const stock = Number(it.currentStock);
+          const restock = Number(it.lastRestockedQty);
+          return (
+            !isLegacySyntheticInventoryId(it.id) &&
+            stock !== 20 &&
+            restock !== 20 &&
+            it.currentStock !== 20 &&
+            it.lastRestockedQty !== 20 &&
+            !it.id.startsWith('inv-p-modal-') &&
+            !it.id.startsWith('inv-prod-')
+          );
+        })
+      : [];
+
+    const existingLogs: InventoryLog[] = Array.isArray(parsed.inventoryLogs)
+      ? parsed.inventoryLogs.filter((l: InventoryLog) => Math.abs(Number(l.quantityChange)) !== 20 && Number(l.balanceAfter) !== 20)
+      : [];
 
     return {
       products: Array.isArray(parsed.products) ? parsed.products : INITIAL_PRODUCTS,

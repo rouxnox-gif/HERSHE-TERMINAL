@@ -12,10 +12,12 @@ import {
   InventoryMovement,
   InventoryItem
 } from '../types';
-import { getOrCreateDeviceId } from '../db/repositories/appSettingsRepo';
+import { getOrCreateDeviceId, getStoreId } from '../db/repositories/appSettingsRepo';
 import { enqueueSyncItem } from '../db/repositories/syncQueueRepo';
-import { getBruneiDateString, getBruneiTimeString, INITIAL_PRODUCTS, DEFAULT_INVENTORY, getDefaultMonthlyDistribution } from '../data/initialData';
+import { getBruneiDateString, getBruneiTimeString, INITIAL_PRODUCTS, DEFAULT_INVENTORY, getDefaultMonthlyDistribution, isLegacySyntheticInventoryId } from '../data/initialData';
 import { triggerSync } from './syncEngine';
+import { db as firestoreDb } from '../lib/firebase';
+import { doc, deleteDoc } from 'firebase/firestore';
 
 /**
  * Fix #5: Checkout Idempotency.
@@ -882,17 +884,34 @@ export async function reconcileInventoryWithProducts(activeProducts: Product[]):
     return;
   }
 
-  // Rule 2: Clean up any auto-generated synthetic inventory items created by legacy auto-fill
-  // that were automatically injected with default 20 btl, and remove orphans whose drinks were deleted.
+  // Rule 2: Clean up any items consisting of 20 bottles, confirmed legacy synthetic inventory items,
+  // and remove orphans whose drinks were deleted from the Drink Menu.
   const menuNames = new Set(productsList.map(p => p.name.toLowerCase().trim()));
-  const syntheticItems = allInventory.filter(inv =>
-    (inv.id.startsWith('inv-prod-') || inv.id.startsWith('inv-p') || inv.id.startsWith('inv-legacy-')) &&
-    inv.currentStock === 20
+  const syntheticItems = allInventory.filter(inv => isLegacySyntheticInventoryId(inv.id));
+  const itemsWith20Bottles = allInventory.filter(inv => {
+    const stock = Number(inv.currentStock);
+    const restock = Number(inv.lastRestockedQty);
+    const name = (inv.productName || '').toLowerCase();
+    return (
+      stock === 20 ||
+      restock === 20 ||
+      inv.currentStock === 20 ||
+      inv.lastRestockedQty === 20 ||
+      inv.id.startsWith('inv-p-modal-') ||
+      inv.id.startsWith('inv-prod-') ||
+      name.includes('20 bottle') ||
+      name.includes('20 btl')
+    );
+  });
+  const orphanItems = allInventory.filter(inv =>
+    !isLegacySyntheticInventoryId(inv.id) &&
+    !itemsWith20Bottles.some(b => b.id === inv.id) &&
+    !menuNames.has(inv.productName.toLowerCase().trim())
   );
-  const orphanItems = allInventory.filter(inv => !menuNames.has(inv.productName.toLowerCase().trim()));
 
   const itemsToDeleteMap = new Map<string, InventoryItem>();
   syntheticItems.forEach(i => itemsToDeleteMap.set(i.id, i));
+  itemsWith20Bottles.forEach(i => itemsToDeleteMap.set(i.id, i));
   orphanItems.forEach(i => itemsToDeleteMap.set(i.id, i));
   const itemsToDelete = Array.from(itemsToDeleteMap.values());
 
@@ -900,6 +919,7 @@ export async function reconcileInventoryWithProducts(activeProducts: Product[]):
     return;
   }
 
+  const storeId = await getStoreId();
   await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
     for (const item of itemsToDelete) {
       await db.inventory.delete(item.id);
@@ -913,6 +933,13 @@ export async function reconcileInventoryWithProducts(activeProducts: Product[]):
       });
     }
   });
+
+  // Physically delete from Firestore directly
+  for (const item of itemsToDelete) {
+    try {
+      await deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventory', item.id));
+    } catch {}
+  }
 
   triggerSync();
 }

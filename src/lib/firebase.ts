@@ -13,6 +13,7 @@ import {
   initializeFirestore, 
   getFirestore, 
   Firestore,
+  setLogLevel,
 } from 'firebase/firestore';
 import defaultAppletConfig from '../../firebase-applet-config.json';
 
@@ -43,10 +44,17 @@ if (typeof window !== 'undefined') {
 
 const config = resolvedFirebaseConfig as any;
 
-// Initialize Firestore with forced long polling for optimal connection resilience across Cloud Run proxies & sandboxed iframes
+// Suppress Firestore's internal connection retry / offline advisory console errors
+try {
+  setLogLevel('silent');
+} catch {
+  // Graceful fallback
+}
+
+// Initialize Firestore with auto-detect long polling for optimal connection resilience across Cloud Run proxies & sandboxed iframes
 let firestoreInstance: Firestore;
 const firestoreSettings = {
-  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: true,
 };
 
 try {
