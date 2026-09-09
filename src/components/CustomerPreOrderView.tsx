@@ -389,9 +389,12 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
       stockVal = stockMap.get(product.id.toLowerCase().trim());
     }
 
-    // Product exists but no inventory record → stock = 0 (sold out)
-    const effectiveStock = stockVal !== undefined ? stockVal : 0;
-    return effectiveStock <= 0;
+    // Rule: Do NOT display out of stock unless the drink is in the inventory section and has 0 stock
+    if (stockVal === undefined) {
+      return false;
+    }
+
+    return stockVal <= 0;
   };
 
   // Available customizer addons for currently selected product
