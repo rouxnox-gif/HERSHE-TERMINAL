@@ -58,6 +58,9 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
       }
       if (item.id) {
         map.set(item.id.toLowerCase().trim(), item);
+        if (item.id.startsWith('inv-')) {
+          map.set(item.id.slice(4).toLowerCase().trim(), item);
+        }
       }
     });
     return map;
@@ -578,11 +581,13 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
               </div>
             ) : (
               filteredProducts.map(p => {
-                const invItem = inventoryMap.get(p.name.toLowerCase().trim()) || (p.id ? inventoryMap.get(p.id.toLowerCase().trim()) : undefined);
-                const hasStockTracking = invItem !== undefined;
-                const stock = invItem ? (Number(invItem.currentStock) || 0) : 0;
-                const isOutOfStock = hasStockTracking && stock === 0;
-                const isLowStock = hasStockTracking && stock <= invItem.lowStockThreshold && stock > 0;
+                const invItem =
+                  inventoryMap.get(p.name.toLowerCase().trim()) ||
+                  (p.id ? inventoryMap.get(p.id.toLowerCase().trim()) : undefined);
+                const hasInventoryRecord = invItem !== undefined;
+                const stock = hasInventoryRecord ? (Number(invItem.currentStock) || 0) : 0;
+                const isOutOfStock = hasInventoryRecord && stock === 0;
+                const isLowStock = hasInventoryRecord && stock <= invItem.lowStockThreshold && stock > 0;
                 const unit = invItem?.unit === 'shots' ? 'sh' : 'btl';
 
                 return (
@@ -616,7 +621,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                     <div className="flex items-center justify-between gap-1 mt-auto pt-1">
                       {/* Inventory Stock Pill & Addon Indicator */}
                       <div className="flex items-center gap-1 flex-wrap">
-                        {hasStockTracking && (
+                        {hasInventoryRecord && (
                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 ${
                             isOutOfStock
                               ? 'bg-red-500/20 text-red-400 border border-red-500/30'

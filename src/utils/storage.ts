@@ -37,25 +37,13 @@ export function loadStorageData(): StorageData {
     }
     const parsed = JSON.parse(raw);
     
-    // Filter out any legacy synthetic items and items consisting of 20 bottles from legacy storage backups
+    // Filter out any legacy synthetic items from legacy storage backups
     const existingInventory: InventoryItem[] = Array.isArray(parsed.inventory)
-      ? parsed.inventory.filter((it: InventoryItem) => {
-          const stock = Number(it.currentStock);
-          const restock = Number(it.lastRestockedQty);
-          return (
-            !isLegacySyntheticInventoryId(it.id) &&
-            stock !== 20 &&
-            restock !== 20 &&
-            it.currentStock !== 20 &&
-            it.lastRestockedQty !== 20 &&
-            !it.id.startsWith('inv-p-modal-') &&
-            !it.id.startsWith('inv-prod-')
-          );
-        })
+      ? parsed.inventory.filter((it: InventoryItem) => !isLegacySyntheticInventoryId(it.id))
       : [];
 
     const existingLogs: InventoryLog[] = Array.isArray(parsed.inventoryLogs)
-      ? parsed.inventoryLogs.filter((l: InventoryLog) => Math.abs(Number(l.quantityChange)) !== 20 && Number(l.balanceAfter) !== 20)
+      ? parsed.inventoryLogs
       : [];
 
     return {

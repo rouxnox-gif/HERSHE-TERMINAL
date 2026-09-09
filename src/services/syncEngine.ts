@@ -380,22 +380,13 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
         const data = d.data() as any;
         if (!data.id) data.id = d.id;
 
-        const stock = Number(data.currentStock);
-        const restock = Number(data.lastRestockedQty);
-        const name = (data.productName || data.name || '').toLowerCase();
-        const is20Bottles = stock === 20 ||
-          restock === 20 ||
-          data.currentStock === 20 ||
-          data.lastRestockedQty === 20 ||
-          isLegacySyntheticInventoryId(data.id) ||
-          data.id.startsWith('inv-p-modal-') ||
-          data.id.startsWith('inv-prod-') ||
-          name.includes('20 bottle') ||
-          name.includes('20 btl');
+        const isLegacy = isLegacySyntheticInventoryId(data.id);
 
-        if (data.isDeleted || is20Bottles) {
+        if (data.isDeleted || isLegacy) {
           localDb.inventory.delete(data.id).catch(() => {});
-          deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventory', data.id)).catch(() => {});
+          if (isLegacy) {
+            deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventory', data.id)).catch(() => {});
+          }
           return;
         }
 

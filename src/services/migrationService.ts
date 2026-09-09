@@ -19,10 +19,10 @@ const OLD_STORAGE_KEY = 'hershe_pos_app_data_v4';
 const OLD_PIN_KEY = 'hershe_pos_store_pin';
 
 /**
- * Permanently deletes everything that consists of 20 bottles (items, logs, movements)
+ * Permanently deletes legacy synthetic inventory items (identified by isLegacySyntheticInventoryId)
  * from both local IndexedDB and Cloud Firestore.
  */
-export async function purgeEverythingConsistingOf20Bottles(): Promise<{
+export async function purgeLegacySyntheticInventory(): Promise<{
   deletedInventory: number;
   deletedLogs: number;
   deletedMovements: number;
@@ -35,28 +35,13 @@ export async function purgeEverythingConsistingOf20Bottles(): Promise<{
     const deviceId = await getOrCreateDeviceId();
     const storeId = await getStoreId();
 
-    // 1. Purge Inventory records that consist of 20 bottles or have stock/restock of 20
+    // 1. Purge Inventory records with known legacy synthetic IDs
     const allInv = await db.inventory.toArray();
-    const inv20ToDelete = allInv.filter(inv => {
-      const stock = Number(inv.currentStock);
-      const restock = Number(inv.lastRestockedQty);
-      const name = (inv.productName || '').toLowerCase();
-      return (
-        stock === 20 ||
-        restock === 20 ||
-        inv.currentStock === 20 ||
-        inv.lastRestockedQty === 20 ||
-        isLegacySyntheticInventoryId(inv.id) ||
-        inv.id.startsWith('inv-p-modal-') ||
-        inv.id.startsWith('inv-prod-') ||
-        name.includes('20 bottle') ||
-        name.includes('20 btl')
-      );
-    });
+    const legacyToDelete = allInv.filter(inv => isLegacySyntheticInventoryId(inv.id));
 
-    if (inv20ToDelete.length > 0) {
+    if (legacyToDelete.length > 0) {
       await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
-        for (const item of inv20ToDelete) {
+        for (const item of legacyToDelete) {
           await db.inventory.delete(item.id);
           await enqueueSyncItem({
             entityType: 'inventoryItem',
@@ -64,14 +49,14 @@ export async function purgeEverythingConsistingOf20Bottles(): Promise<{
             operation: 'DELETE',
             payload: { id: item.id },
             deviceId,
-            operationId: `sync-del-20btl-${item.id}-${Date.now()}`,
+            operationId: `sync-del-legacy-${item.id}-${Date.now()}`,
           });
           deletedInventory++;
         }
       });
 
       // Synchronously trigger delete directly in Firestore
-      for (const item of inv20ToDelete) {
+      for (const item of legacyToDelete) {
         try {
           await deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventory', item.id));
         } catch {
@@ -80,62 +65,12 @@ export async function purgeEverythingConsistingOf20Bottles(): Promise<{
       }
     }
 
-    // 2. Purge Inventory Logs corresponding to 20 bottles
-    const allLogs = await db.inventoryLogs.toArray();
-    const logs20ToDelete = allLogs.filter(log => {
-      const qty = Math.abs(Number(log.quantityChange));
-      const bal = Number(log.balanceAfter);
-      const reason = (log.reason || '').toLowerCase();
-      const prod = (log.productName || '').toLowerCase();
-      return (
-        qty === 20 ||
-        bal === 20 ||
-        reason.includes('20') ||
-        prod.includes('20 bottle') ||
-        prod.includes('20 btl')
-      );
-    });
-
-    if (logs20ToDelete.length > 0) {
-      await db.inventoryLogs.bulkDelete(logs20ToDelete.map(l => l.id));
-      deletedLogs = logs20ToDelete.length;
-      for (const log of logs20ToDelete) {
-        try {
-          await deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventoryLogs', log.id));
-        } catch {}
-      }
-    }
-
-    // 3. Purge Inventory Movements corresponding to 20 bottles
-    const allMovs = await db.inventoryMovements.toArray();
-    const movs20ToDelete = allMovs.filter(m => {
-      const change = Math.abs(Number(m.quantityChange));
-      const reason = (m.reason || '').toLowerCase();
-      const prod = (m.productName || '').toLowerCase();
-      return change === 20 || reason.includes('20') || prod.includes('20 bottle') || prod.includes('20 btl');
-    });
-
-    if (movs20ToDelete.length > 0) {
-      await db.inventoryMovements.bulkDelete(movs20ToDelete.map(m => m.movementId));
-      deletedMovements = movs20ToDelete.length;
-      for (const m of movs20ToDelete) {
-        try {
-          await deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventoryMovements', m.movementId));
-        } catch {}
-      }
-    }
-
-    // 4. Purge any stale syncQueue items for 20-bottle items so they never re-upload
+    // 2. Purge any stale syncQueue items for legacy synthetic items so they never re-upload
     const allSync = await db.syncQueue.toArray();
     const badSyncOps = allSync.filter(s => {
       if (s.entityType === 'inventoryItem') {
-        const payload = s.payload as any;
-        if (payload) {
-          const stock = Number(payload.currentStock);
-          const restock = Number(payload.lastRestockedQty);
-          if (stock === 20 || restock === 20 || isLegacySyntheticInventoryId(s.entityId)) {
-            return true;
-          }
+        if (isLegacySyntheticInventoryId(s.entityId)) {
+          return true;
         }
       }
       return false;
@@ -146,7 +81,7 @@ export async function purgeEverythingConsistingOf20Bottles(): Promise<{
 
     triggerSync();
   } catch (err) {
-    console.warn('[Purge20Bottles] Notice during purge:', err);
+    console.warn('[PurgeLegacySynthetic] Notice during purge:', err);
   }
 
   return { deletedInventory, deletedLogs, deletedMovements };
@@ -181,8 +116,8 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
     }
   }
 
-  // Unconditionally purge everything consisting of 20 bottles on every boot
-  await purgeEverythingConsistingOf20Bottles();
+  // Purge confirmed legacy synthetic inventory on boot
+  await purgeLegacySyntheticInventory();
 
   // Once migrated, never re-run migration on refresh regardless of whether inventory is empty
   if (isMigrated) {
@@ -201,7 +136,7 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
     const raw = localStorage.getItem(OLD_STORAGE_KEY);
     if (raw) {
       oldData = JSON.parse(raw);
-      // Clean legacy inventory from old storage backup so it cannot re-inject 20 btl items
+      // Clean legacy inventory from old storage backup so it cannot re-inject legacy items
       if (oldData && oldData.inventory) {
         oldData.inventory = [];
         localStorage.setItem(OLD_STORAGE_KEY, JSON.stringify(oldData));
@@ -237,7 +172,7 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
       await db.products.bulkPut(prods);
     }
 
-    // 2. Inventory: Opt-in only. Do NOT migrate synthetic default 20 btl items.
+    // 2. Inventory: Opt-in only. Do NOT migrate synthetic default items.
     // The inventory list remains completely empty until the user explicitly adds items.
     // (DEFAULT_INVENTORY is empty, so no automatic items are created)
 

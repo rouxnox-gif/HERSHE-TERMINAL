@@ -54,22 +54,7 @@ export function usePOSData() {
   const inventory = useLiveQuery(
     async () => {
       const items = await db.inventory.toArray();
-      return items.filter(it => {
-        const stock = Number(it.currentStock);
-        const restock = Number(it.lastRestockedQty);
-        const name = (it.productName || '').toLowerCase();
-        const is20 = 
-          stock === 20 ||
-          restock === 20 ||
-          it.currentStock === 20 ||
-          it.lastRestockedQty === 20 ||
-          isLegacySyntheticInventoryId(it.id) ||
-          it.id.startsWith('inv-p-modal-') ||
-          it.id.startsWith('inv-prod-') ||
-          name.includes('20 bottle') ||
-          name.includes('20 btl');
-        return !is20;
-      });
+      return items.filter(it => !it.isDeleted && !isLegacySyntheticInventoryId(it.id));
     },
     [],
     [] as InventoryItem[]
@@ -78,15 +63,7 @@ export function usePOSData() {
   const inventoryLogs = useLiveQuery(
     async () => {
       const items = await db.inventoryLogs.toArray();
-      return items
-        .filter(l => {
-          const qty = Math.abs(Number(l.quantityChange));
-          const bal = Number(l.balanceAfter);
-          const reason = (l.reason || '').toLowerCase();
-          const prod = (l.productName || '').toLowerCase();
-          return !(qty === 20 || bal === 20 || reason.includes('20') || prod.includes('20 bottle') || prod.includes('20 btl'));
-        })
-        .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+      return items.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
     },
     [],
     [] as InventoryLog[]

@@ -735,7 +735,7 @@ export async function saveProduct(product: Product): Promise<Product> {
         });
       }
     }
-    // Note: Do NOT auto-create inventory items with default 20 btl when adding or editing drinks.
+    // Note: Do NOT auto-create inventory items when adding or editing drinks.
     // The inventory list remains clean and empty until the user explicitly adds items.
   });
 
@@ -855,7 +855,7 @@ export async function clearAllProducts(): Promise<void> {
  * 1. If there's no menu available (0 products), inventory MUST be none!
  * 2. If menu exists, DO NOT auto-generate synthetic inventory items with default stock!
  *    The inventory list remains empty until the user explicitly adds an item.
- * 3. Purges any legacy auto-generated synthetic inventory items (e.g. invId starting with inv-prod- with 20 btl)
+ * 3. Purges any legacy auto-generated synthetic inventory items (identified by isLegacySyntheticInventoryId)
  *    and removes orphan items whose menu drink was deleted.
  */
 export async function reconcileInventoryWithProducts(activeProducts: Product[]): Promise<void> {
@@ -884,34 +884,17 @@ export async function reconcileInventoryWithProducts(activeProducts: Product[]):
     return;
   }
 
-  // Rule 2: Clean up any items consisting of 20 bottles, confirmed legacy synthetic inventory items,
+  // Rule 2: Clean up confirmed legacy synthetic inventory items,
   // and remove orphans whose drinks were deleted from the Drink Menu.
   const menuNames = new Set(productsList.map(p => p.name.toLowerCase().trim()));
   const syntheticItems = allInventory.filter(inv => isLegacySyntheticInventoryId(inv.id));
-  const itemsWith20Bottles = allInventory.filter(inv => {
-    const stock = Number(inv.currentStock);
-    const restock = Number(inv.lastRestockedQty);
-    const name = (inv.productName || '').toLowerCase();
-    return (
-      stock === 20 ||
-      restock === 20 ||
-      inv.currentStock === 20 ||
-      inv.lastRestockedQty === 20 ||
-      inv.id.startsWith('inv-p-modal-') ||
-      inv.id.startsWith('inv-prod-') ||
-      name.includes('20 bottle') ||
-      name.includes('20 btl')
-    );
-  });
   const orphanItems = allInventory.filter(inv =>
     !isLegacySyntheticInventoryId(inv.id) &&
-    !itemsWith20Bottles.some(b => b.id === inv.id) &&
     !menuNames.has(inv.productName.toLowerCase().trim())
   );
 
   const itemsToDeleteMap = new Map<string, InventoryItem>();
   syntheticItems.forEach(i => itemsToDeleteMap.set(i.id, i));
-  itemsWith20Bottles.forEach(i => itemsToDeleteMap.set(i.id, i));
   orphanItems.forEach(i => itemsToDeleteMap.set(i.id, i));
   const itemsToDelete = Array.from(itemsToDeleteMap.values());
 

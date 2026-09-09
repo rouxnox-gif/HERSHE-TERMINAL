@@ -376,19 +376,22 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   const checkIsSoldOut = (product: Product | null): boolean => {
     if (!product) return false;
     const rawName = product.name.toLowerCase().trim();
-    const byName = stockMap.get(rawName);
-    if (byName !== undefined) return byName <= 0;
+    let stockVal: number | undefined = stockMap.get(rawName);
 
-    const alphaName = rawName.replace(/[^a-z0-9]/g, '');
-    if (alphaName) {
-      const byAlpha = stockMap.get(alphaName);
-      if (byAlpha !== undefined) return byAlpha <= 0;
+    if (stockVal === undefined) {
+      const alphaName = rawName.replace(/[^a-z0-9]/g, '');
+      if (alphaName) {
+        stockVal = stockMap.get(alphaName);
+      }
     }
 
-    const byId = product.id ? stockMap.get(product.id.toLowerCase().trim()) : undefined;
-    if (byId !== undefined) return byId <= 0;
+    if (stockVal === undefined && product.id) {
+      stockVal = stockMap.get(product.id.toLowerCase().trim());
+    }
 
-    return false;
+    // Product exists but no inventory record → stock = 0 (sold out)
+    const effectiveStock = stockVal !== undefined ? stockVal : 0;
+    return effectiveStock <= 0;
   };
 
   // Available customizer addons for currently selected product

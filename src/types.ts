@@ -210,6 +210,7 @@ export interface InventoryItem {
   costPerUnit?: number;
   lastRestockedDate?: string;
   lastRestockedQty?: number;
+  isDeleted?: boolean;
   updatedAt?: string;
   deviceId?: string;
 }
