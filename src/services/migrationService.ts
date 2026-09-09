@@ -12,7 +12,6 @@ import { triggerSync } from './syncEngine';
 import { db as firestoreDb } from '../lib/firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { Product, Order, Expense, PendingOrder, StaffShift, InventoryItem, InventoryLog, InventoryMovement, MonthlyDistributionConfig } from '../types';
-import { reconcileInventoryWithProducts } from './posService';
 
 const MIGRATION_FLAG_KEY = 'hershe_pos_dexie_migration_v1_done';
 const OLD_STORAGE_KEY = 'hershe_pos_app_data_v4';
@@ -275,12 +274,6 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
       }
     }
   });
-
-  // Reconcile inventory with active products:
-  // If there's no menu available, inventory also should be none!
-  const allProds = await db.products.toArray();
-  const activeProds = allProds.filter(p => !p.isDeleted);
-  await reconcileInventoryWithProducts(activeProds);
 
   // Commit migration completion flag so initialization only runs once
   localStorage.setItem(MIGRATION_FLAG_KEY, 'true');

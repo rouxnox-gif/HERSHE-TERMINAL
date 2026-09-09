@@ -29,8 +29,7 @@ import {
   deleteShift,
   clearAllShifts,
   saveDistribution,
-  resetDatabaseToDefaults,
-  reconcileInventoryWithProducts
+  resetDatabaseToDefaults
 } from './services/posService';
 import { applyInventoryMovement } from './services/inventoryService';
 import { saveInventoryItem, deleteInventoryItem } from './db/repositories/inventoryRepo';
@@ -245,15 +244,6 @@ export default function App() {
     inventory,
     inventoryLogs,
   }), [products, orders, expenses, pendingOrders, shifts, currentUser, distributions, inventory, inventoryLogs]);
-
-  // Inventory reflects the drink menu in terminal.
-  // If there's no menu available, then inventory also should be none!
-  useEffect(() => {
-    if (!products) return;
-    reconcileInventoryWithProducts(products).catch(err => {
-      console.warn('[InventorySync] Error reconciling inventory with products:', err);
-    });
-  }, [products]);
 
   // Staff Check-In
   const handleCheckIn = async (session: UserSession, newShift: StaffShift) => {

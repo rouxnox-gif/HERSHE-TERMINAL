@@ -768,7 +768,7 @@ export async function deleteProduct(productId: string): Promise<void> {
       operationId: `sync-del-prod-${productId}-${Date.now()}`,
     });
 
-    // Remove matching inventory item
+    // Remove matching inventory item if one existed for this specific product
     const allInv = await db.inventory.toArray();
     const matchingInv = allInv.find(inv =>
       inv.id === `inv-${productId}` ||
@@ -786,23 +786,6 @@ export async function deleteProduct(productId: string): Promise<void> {
         operationId: `sync-del-inv-${matchingInv.id}-${Date.now()}`,
       });
     }
-
-    // If there's no active menu items left, inventory must also be none!
-    const allRemainingProducts = (await db.products.toArray()).filter(p => !p.isDeleted && p.id !== productId);
-    if (allRemainingProducts.length === 0) {
-      const remainingInv = await db.inventory.toArray();
-      for (const item of remainingInv) {
-        await db.inventory.delete(item.id);
-        await enqueueSyncItem({
-          entityType: 'inventoryItem',
-          entityId: item.id,
-          operation: 'DELETE',
-          payload: { id: item.id },
-          deviceId,
-          operationId: `sync-del-inv-${item.id}-${Date.now()}`,
-        });
-      }
-    }
   });
 
   triggerSync();
@@ -810,16 +793,15 @@ export async function deleteProduct(productId: string): Promise<void> {
 
 /**
  * Clears/deletes all products from menu so owner can start with a fresh slate.
- * Per user requirement: If there's no menu available, then inventory also should be none!
+ * Per business rule: Product and Inventory tables are independent.
  */
 export async function clearAllProducts(): Promise<void> {
   const deviceId = await getOrCreateDeviceId();
   const allProducts = await db.products.toArray();
   const activeProducts = allProducts.filter(p => !p.isDeleted);
-  const allInv = await db.inventory.toArray();
   const nowIso = new Date().toISOString();
 
-  await db.transaction('rw', [db.products, db.inventory, db.syncQueue], async () => {
+  await db.transaction('rw', [db.products, db.syncQueue], async () => {
     for (const prod of activeProducts) {
       await db.products.update(prod.id, { isDeleted: true, updatedAt: nowIso });
       await enqueueSyncItem({
@@ -831,100 +813,17 @@ export async function clearAllProducts(): Promise<void> {
         operationId: `sync-del-prod-${prod.id}-${Date.now()}`,
       });
     }
-
-    // If there's no menu available, inventory also should be none!
-    for (const item of allInv) {
-      await db.inventory.delete(item.id);
-      await enqueueSyncItem({
-        entityType: 'inventoryItem',
-        entityId: item.id,
-        operation: 'DELETE',
-        payload: { id: item.id },
-        deviceId,
-        operationId: `sync-del-inv-${item.id}-${Date.now()}`,
-      });
-    }
   });
 
   triggerSync();
 }
 
 /**
- * Reconciles inventory items with the active terminal drink menu.
- * Rules:
- * 1. If there's no menu available (0 products), inventory MUST be none!
- * 2. If menu exists, DO NOT auto-generate synthetic inventory items with default stock!
- *    The inventory list remains empty until the user explicitly adds an item.
- * 3. Purges any legacy auto-generated synthetic inventory items (identified by isLegacySyntheticInventoryId)
- *    and removes orphan items whose menu drink was deleted.
+ * @deprecated Menu and inventory tables are completely independent.
+ * Disabled to ensure products never auto-reconcile, alter, or create inventory records.
  */
-export async function reconcileInventoryWithProducts(activeProducts: Product[]): Promise<void> {
-  const deviceId = await getOrCreateDeviceId();
-  const productsList = (activeProducts || []).filter(p => !p.isDeleted);
-  const allInventory = await db.inventory.toArray();
-
-  // Rule 1: If there's no menu available (0 products), inventory MUST be none!
-  if (productsList.length === 0) {
-    if (allInventory.length > 0) {
-      await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
-        for (const item of allInventory) {
-          await db.inventory.delete(item.id);
-          await enqueueSyncItem({
-            entityType: 'inventoryItem',
-            entityId: item.id,
-            operation: 'DELETE',
-            payload: { id: item.id },
-            deviceId,
-            operationId: `sync-del-inv-${item.id}-${Date.now()}`,
-          });
-        }
-      });
-      triggerSync();
-    }
-    return;
-  }
-
-  // Rule 2: Clean up confirmed legacy synthetic inventory items,
-  // and remove orphans whose drinks were deleted from the Drink Menu.
-  const menuNames = new Set(productsList.map(p => p.name.toLowerCase().trim()));
-  const syntheticItems = allInventory.filter(inv => isLegacySyntheticInventoryId(inv.id));
-  const orphanItems = allInventory.filter(inv =>
-    !isLegacySyntheticInventoryId(inv.id) &&
-    !menuNames.has(inv.productName.toLowerCase().trim())
-  );
-
-  const itemsToDeleteMap = new Map<string, InventoryItem>();
-  syntheticItems.forEach(i => itemsToDeleteMap.set(i.id, i));
-  orphanItems.forEach(i => itemsToDeleteMap.set(i.id, i));
-  const itemsToDelete = Array.from(itemsToDeleteMap.values());
-
-  if (itemsToDelete.length === 0) {
-    return;
-  }
-
-  const storeId = await getStoreId();
-  await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
-    for (const item of itemsToDelete) {
-      await db.inventory.delete(item.id);
-      await enqueueSyncItem({
-        entityType: 'inventoryItem',
-        entityId: item.id,
-        operation: 'DELETE',
-        payload: { id: item.id },
-        deviceId,
-        operationId: `sync-del-inv-${item.id}-${Date.now()}`,
-      });
-    }
-  });
-
-  // Physically delete from Firestore directly
-  for (const item of itemsToDelete) {
-    try {
-      await deleteDoc(doc(firestoreDb, 'stores', storeId, 'inventory', item.id));
-    } catch {}
-  }
-
-  triggerSync();
+export async function reconcileInventoryWithProducts(_activeProducts?: Product[]): Promise<void> {
+  // Completely disabled. Product/Menu and Inventory tables are independent.
 }
 
 /**
