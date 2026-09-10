@@ -1,10 +1,10 @@
-import React from 'react';
-import { RotateCcw, AlertTriangle, X, ShieldAlert } from 'lucide-react';
+import React, { useState } from 'react';
+import { RotateCcw, AlertTriangle, X, ShieldAlert, Loader2 } from 'lucide-react';
 
 interface ResetConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void> | void;
 }
 
 export const ResetConfirmModal: React.FC<ResetConfirmModalProps> = ({
@@ -12,7 +12,21 @@ export const ResetConfirmModal: React.FC<ResetConfirmModalProps> = ({
   onClose,
   onConfirm,
 }) => {
+  const [isResetting, setIsResetting] = useState(false);
+
   if (!isOpen) return null;
+
+  const handleConfirm = async () => {
+    try {
+      setIsResetting(true);
+      await onConfirm();
+      onClose();
+    } catch (err) {
+      console.error('Failed to reset store data:', err);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -28,13 +42,14 @@ export const ResetConfirmModal: React.FC<ResetConfirmModalProps> = ({
                 Reset Store Data?
               </h3>
               <p className="text-xs text-slate-400">
-                Action requires confirmation
+                Resets everything to zero &amp; deletes Firebase data
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 transition cursor-pointer"
+            disabled={isResetting}
+            className="p-2 rounded-xl text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
@@ -47,13 +62,15 @@ export const ResetConfirmModal: React.FC<ResetConfirmModalProps> = ({
             <span>Are you sure you want to reset all store data?</span>
           </div>
           <p className="text-[11px] leading-relaxed text-slate-300">
-            This operation will reset the drink menu products back to default and clear all:
+            This operation will permanently reset everything to zero and delete all data inside Firebase and Google Studio:
           </p>
           <ul className="list-disc list-inside text-[11px] text-slate-300 space-y-1 pl-1">
-            <li>Sales transaction history and receipts</li>
-            <li>Expense records</li>
-            <li>Pending sales approvals</li>
-            <li>Staff shift logs</li>
+            <li>Drink menu catalog (reset to zero)</li>
+            <li>Inventory tracking &amp; movement audit logs (reset to zero)</li>
+            <li>Sales transaction history and receipts (reset to zero)</li>
+            <li>Expense records (reset to zero)</li>
+            <li>Pending sales orders (reset to zero)</li>
+            <li>Staff shift check-ins (reset to zero)</li>
           </ul>
         </div>
 
@@ -62,20 +79,28 @@ export const ResetConfirmModal: React.FC<ResetConfirmModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition cursor-pointer active:scale-95"
+            disabled={isResetting}
+            className="py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition cursor-pointer active:scale-95 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="button"
-            onClick={() => {
-              onConfirm();
-              onClose();
-            }}
-            className="py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-900/30 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            onClick={handleConfirm}
+            disabled={isResetting}
+            className="py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-900/30 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
           >
-            <RotateCcw className="w-4 h-4" />
-            <span>Yes, Reset Data</span>
+            {isResetting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Deleting &amp; Resetting...</span>
+              </>
+            ) : (
+              <>
+                <RotateCcw className="w-4 h-4" />
+                <span>Yes, Reset Data</span>
+              </>
+            )}
           </button>
         </div>
       </div>
