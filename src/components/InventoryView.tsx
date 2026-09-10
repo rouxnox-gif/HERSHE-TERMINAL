@@ -362,7 +362,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const time = getBruneiTimeString();
 
     const newItem: InventoryItem = {
-      id: `inv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: `inv-manual-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       productName: matchedProduct.name,
       currentStock: initialStock,
       unit,

@@ -380,7 +380,8 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
         const data = d.data() as any;
         if (!data.id) data.id = d.id;
 
-        const isLegacy = isLegacySyntheticInventoryId(data.id);
+        const isLegacy = isLegacySyntheticInventoryId(data.id) ||
+          (data.currentStock === 20 && data.lastRestockedQty === 20 && data.unit === 'bottles' && !data.id.startsWith('inv-manual-'));
 
         if (data.isDeleted || isLegacy) {
           localDb.inventory.delete(data.id).catch(() => {});

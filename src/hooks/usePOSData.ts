@@ -54,7 +54,12 @@ export function usePOSData() {
   const inventory = useLiveQuery(
     async () => {
       const items = await db.inventory.toArray();
-      return items.filter(it => !it.isDeleted && !isLegacySyntheticInventoryId(it.id));
+      return items.filter(
+        it =>
+          !it.isDeleted &&
+          !isLegacySyntheticInventoryId(it.id) &&
+          !(it.currentStock === 20 && it.lastRestockedQty === 20 && it.unit === 'bottles' && !it.id.startsWith('inv-manual-'))
+      );
     },
     [],
     [] as InventoryItem[]

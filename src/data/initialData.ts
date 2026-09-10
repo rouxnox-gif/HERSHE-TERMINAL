@@ -63,8 +63,16 @@ export function isLegacySyntheticInventoryId(id: string): boolean {
   if (!id || typeof id !== 'string') return false;
   if (KNOWN_LEGACY_SYNTHETIC_IDS.has(id)) return true;
   if (id.startsWith('inv-legacy-') || id.startsWith('inv-prod-legacy-')) return true;
-  // Specific pattern for old default template products: inv-p1..p8 or inv-prod-p1..p8
-  if (/^inv-(prod-)?p[1-8]$/.test(id)) return true;
+  // Patterns for automatic product-derived inventory IDs (e.g. inv-p-modal-..., inv-p-custom-..., inv-prod-..., inv-p...)
+  if (
+    id.startsWith('inv-p-modal-') ||
+    id.startsWith('inv-p-custom-') ||
+    id.startsWith('inv-prod-') ||
+    /^inv-(prod-)?p\d+/.test(id) ||
+    /^inv-p[1-8]$/.test(id)
+  ) {
+    return true;
+  }
   return false;
 }
 

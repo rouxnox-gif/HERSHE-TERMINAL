@@ -34,9 +34,12 @@ export async function purgeLegacySyntheticInventory(): Promise<{
     const deviceId = await getOrCreateDeviceId();
     const storeId = await getStoreId();
 
-    // 1. Purge Inventory records with known legacy synthetic IDs
+    // 1. Purge Inventory records with known legacy synthetic IDs or rogue auto-created 20 bottles records
     const allInv = await db.inventory.toArray();
-    const legacyToDelete = allInv.filter(inv => isLegacySyntheticInventoryId(inv.id));
+    const legacyToDelete = allInv.filter(inv =>
+      isLegacySyntheticInventoryId(inv.id) ||
+      (inv.currentStock === 20 && inv.lastRestockedQty === 20 && inv.unit === 'bottles' && !inv.id.startsWith('inv-manual-'))
+    );
 
     if (legacyToDelete.length > 0) {
       await db.transaction('rw', [db.inventory, db.syncQueue], async () => {
@@ -68,7 +71,10 @@ export async function purgeLegacySyntheticInventory(): Promise<{
     const allSync = await db.syncQueue.toArray();
     const badSyncOps = allSync.filter(s => {
       if (s.entityType === 'inventoryItem') {
-        if (isLegacySyntheticInventoryId(s.entityId)) {
+        if (
+          isLegacySyntheticInventoryId(s.entityId) ||
+          (s.payload && (s.payload as any).currentStock === 20 && (s.payload as any).lastRestockedQty === 20 && (s.payload as any).unit === 'bottles' && !s.entityId.startsWith('inv-manual-'))
+        ) {
           return true;
         }
       }

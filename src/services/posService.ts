@@ -680,13 +680,16 @@ export async function deleteExpense(id: string): Promise<void> {
 }
 
 /**
- * Saves or updates a Product and keeps inventory reflecting the drink menu.
+ * Saves or updates a Product in the drink menu catalog.
+ * STRICT INDEPENDENCE:
+ * - Adding a new drink or product to the Drink Menu NEVER tracks or creates an InventoryItem.
+ * - Under NO circumstance does it add 20 bottles or any default inventory stock automatically.
+ * - Inventory records can ONLY ever be created through explicit manual actions in the Inventory management tab.
  */
 export async function saveProduct(product: Product): Promise<Product> {
   const deviceId = await getOrCreateDeviceId();
   const id = product.id || `prod-${Date.now()}`;
   const nowIso = new Date().toISOString();
-  const todayStr = getBruneiDateString();
 
   const productRecord: Product = {
     ...product,
@@ -696,7 +699,8 @@ export async function saveProduct(product: Product): Promise<Product> {
     isDeleted: false,
   };
 
-  await db.transaction('rw', [db.products, db.inventory, db.syncQueue], async () => {
+  await db.transaction('rw', [db.products, db.syncQueue], async () => {
+    // Save product strictly to product catalog - zero inventory creation or mutation
     await db.products.put(productRecord);
 
     await enqueueSyncItem({
@@ -707,36 +711,6 @@ export async function saveProduct(product: Product): Promise<Product> {
       deviceId,
       operationId: `sync-prod-${id}`,
     });
-
-    // Ensure inventory item reflects this product
-    const allInv = await db.inventory.toArray();
-    const existingInv = allInv.find(inv =>
-      inv.id === `inv-${id}` ||
-      (product.id && inv.id === `inv-${product.id}`) ||
-      inv.productName.toLowerCase().trim() === product.name.toLowerCase().trim()
-    );
-
-    // If an inventory item is already tracked for this product, keep its name in sync
-    if (existingInv) {
-      if (existingInv.productName !== product.name) {
-        const updatedInvItem: InventoryItem = {
-          ...existingInv,
-          productName: product.name,
-          updatedAt: nowIso,
-        };
-        await db.inventory.put(updatedInvItem);
-        await enqueueSyncItem({
-          entityType: 'inventoryItem',
-          entityId: existingInv.id,
-          operation: 'UPDATE',
-          payload: updatedInvItem,
-          deviceId,
-          operationId: `sync-inv-name-${existingInv.id}-${Date.now()}`,
-        });
-      }
-    }
-    // Note: Do NOT auto-create inventory items when adding or editing drinks.
-    // The inventory list remains clean and empty until the user explicitly adds items.
   });
 
   triggerSync();
@@ -816,14 +790,6 @@ export async function clearAllProducts(): Promise<void> {
   });
 
   triggerSync();
-}
-
-/**
- * @deprecated Menu and inventory tables are completely independent.
- * Disabled to ensure products never auto-reconcile, alter, or create inventory records.
- */
-export async function reconcileInventoryWithProducts(_activeProducts?: Product[]): Promise<void> {
-  // Completely disabled. Product/Menu and Inventory tables are independent.
 }
 
 /**
