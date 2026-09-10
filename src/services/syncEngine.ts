@@ -230,21 +230,29 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
       }
 
       const remoteProducts: Product[] = [];
+      const remoteIds = new Set<string>();
       snapshot.forEach(d => {
         const data = d.data() as Product;
         if (!data.id) data.id = d.id;
-        remoteProducts.push(data);
+        if (!data.isDeleted) {
+          remoteProducts.push(data);
+          remoteIds.add(data.id);
+        }
       });
-      if (remoteProducts.length > 0) {
-        await localDb.transaction('rw', localDb.products, async () => {
-          for (const rp of remoteProducts) {
-            const local = await localDb.products.get(rp.id);
-            if (!local || !local.updatedAt || (rp.updatedAt && rp.updatedAt >= local.updatedAt)) {
-              await localDb.products.put(rp);
-            }
+      await localDb.transaction('rw', localDb.products, async () => {
+        const allLocal = await localDb.products.toArray();
+        for (const loc of allLocal) {
+          if (!remoteIds.has(loc.id)) {
+            await localDb.products.delete(loc.id);
           }
-        });
-      }
+        }
+        for (const rp of remoteProducts) {
+          const local = await localDb.products.get(rp.id);
+          if (!local || !local.updatedAt || (rp.updatedAt && rp.updatedAt >= local.updatedAt)) {
+            await localDb.products.put(rp);
+          }
+        }
+      });
     }, (err) => console.warn('[SyncEngine] Products listener error:', err));
     activeListeners.push(unsubProd);
 
@@ -262,33 +270,40 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
         }
 
         const remoteOrders: Order[] = [];
+        const remoteOrderIds = new Set<string>();
         snapshot.forEach(d => {
           const data = d.data() as any;
           if (!data.orderId) data.orderId = d.id;
           if (!data.id) data.id = d.id;
           if (!data.isDeleted) {
             remoteOrders.push(data as Order);
+            remoteOrderIds.add(data.orderId);
           }
         });
-        if (remoteOrders.length > 0) {
-          await localDb.transaction('rw', [localDb.orders, localDb.orderItems], async () => {
-            for (const ro of remoteOrders) {
-              const local = await localDb.orders.get(ro.orderId);
-              if (!local || !local.updatedAt || (ro.updatedAt && ro.updatedAt >= local.updatedAt)) {
-                await localDb.orders.put(ro);
-                if (ro.items && ro.items.length > 0) {
-                  const itemsToSave: OrderItem[] = ro.items.map((it, idx) => ({
-                    ...it,
-                    id: `${ro.orderId}-item-${idx}`,
-                    orderId: ro.orderId,
-                    createdAt: ro.createdAt || new Date().toISOString(),
-                  }));
-                  await localDb.orderItems.bulkPut(itemsToSave);
-                }
+        await localDb.transaction('rw', [localDb.orders, localDb.orderItems], async () => {
+          const allLocalOrders = await localDb.orders.toArray();
+          for (const lo of allLocalOrders) {
+            if (!remoteOrderIds.has(lo.orderId)) {
+              await localDb.orders.delete(lo.orderId);
+              await localDb.orderItems.where('orderId').equals(lo.orderId).delete();
+            }
+          }
+          for (const ro of remoteOrders) {
+            const local = await localDb.orders.get(ro.orderId);
+            if (!local || !local.updatedAt || (ro.updatedAt && ro.updatedAt >= local.updatedAt)) {
+              await localDb.orders.put(ro);
+              if (ro.items && ro.items.length > 0) {
+                const itemsToSave: OrderItem[] = ro.items.map((it, idx) => ({
+                  ...it,
+                  id: `${ro.orderId}-item-${idx}`,
+                  orderId: ro.orderId,
+                  createdAt: ro.createdAt || new Date().toISOString(),
+                }));
+                await localDb.orderItems.bulkPut(itemsToSave);
               }
             }
-          });
-        }
+          }
+        });
       }, (err) => console.warn('[SyncEngine] Orders listener error:', err));
       activeListeners.push(unsubOrders);
 
@@ -303,23 +318,29 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
         }
 
         const remoteExpenses: Expense[] = [];
+        const remoteExpenseIds = new Set<string>();
         snapshot.forEach(d => {
           const data = d.data() as any;
           if (!data.id) data.id = d.id;
           if (!data.isDeleted) {
             remoteExpenses.push(data as Expense);
+            remoteExpenseIds.add(data.id);
           }
         });
-        if (remoteExpenses.length > 0) {
-          await localDb.transaction('rw', localDb.expenses, async () => {
-            for (const re of remoteExpenses) {
-              const local = await localDb.expenses.get(re.id);
-              if (!local || !local.updatedAt || (re.updatedAt && re.updatedAt >= local.updatedAt)) {
-                await localDb.expenses.put(re);
-              }
+        await localDb.transaction('rw', localDb.expenses, async () => {
+          const allLocalExpenses = await localDb.expenses.toArray();
+          for (const le of allLocalExpenses) {
+            if (!remoteExpenseIds.has(le.id)) {
+              await localDb.expenses.delete(le.id);
             }
-          });
-        }
+          }
+          for (const re of remoteExpenses) {
+            const local = await localDb.expenses.get(re.id);
+            if (!local || !local.updatedAt || (re.updatedAt && re.updatedAt >= local.updatedAt)) {
+              await localDb.expenses.put(re);
+            }
+          }
+        });
       }, (err) => console.warn('[SyncEngine] Expenses listener error:', err));
       activeListeners.push(unsubExpenses);
     }
@@ -328,26 +349,30 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
     const pendingCol = collection(firestoreDb, 'stores', storeId, 'pendingOrders');
     const unsubPending = onSnapshot(pendingCol, async (snapshot) => {
       const remotePending: PendingOrder[] = [];
+      const remotePendingIds = new Set<string>();
       snapshot.forEach(d => {
         const data = d.data() as PendingOrder;
         if (!data.orderId) data.orderId = d.id;
         if (!data.id) data.id = d.id;
-        remotePending.push(data);
+        if (!data.isDeleted) {
+          remotePending.push(data);
+          remotePendingIds.add(data.orderId);
+        }
       });
-      if (remotePending.length > 0) {
-        await localDb.transaction('rw', localDb.pendingOrders, async () => {
-          for (const rp of remotePending) {
-            if (rp.isDeleted) {
-              await localDb.pendingOrders.delete(rp.orderId);
-            } else {
-              const local = await localDb.pendingOrders.get(rp.orderId);
-              if (!local || !local.updatedAt || (rp.updatedAt && rp.updatedAt >= local.updatedAt)) {
-                await localDb.pendingOrders.put(rp);
-              }
-            }
+      await localDb.transaction('rw', localDb.pendingOrders, async () => {
+        const allLocalPending = await localDb.pendingOrders.toArray();
+        for (const lp of allLocalPending) {
+          if (!remotePendingIds.has(lp.orderId)) {
+            await localDb.pendingOrders.delete(lp.orderId);
           }
-        });
-      }
+        }
+        for (const rp of remotePending) {
+          const local = await localDb.pendingOrders.get(rp.orderId);
+          if (!local || !local.updatedAt || (rp.updatedAt && rp.updatedAt >= local.updatedAt)) {
+            await localDb.pendingOrders.put(rp);
+          }
+        }
+      });
     }, (err) => console.warn('[SyncEngine] PendingOrders listener error:', err));
     activeListeners.push(unsubPending);
 
@@ -376,6 +401,7 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
       }
 
       const remoteInv: InventoryItem[] = [];
+      const remoteInvIds = new Set<string>();
       snapshot.forEach(d => {
         const data = d.data() as any;
         if (!data.id) data.id = d.id;
@@ -392,38 +418,36 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
         }
 
         remoteInv.push(data as InventoryItem);
+        remoteInvIds.add(data.id);
       });
-      if (remoteInv.length > 0) {
-        await localDb.transaction('rw', localDb.inventory, async () => {
-          for (const ri of remoteInv) {
-            const local = await localDb.inventory.get(ri.id);
-            if (!local) {
-              // Check if a local item exists with the exact same product name
-              const allLocal = await localDb.inventory.toArray();
-              const matchedByName = allLocal.find(
-                it => it.productName.toLowerCase().trim() === ri.productName.toLowerCase().trim()
-              );
-              if (matchedByName && matchedByName.id !== ri.id) {
-                await localDb.inventory.delete(matchedByName.id);
-              }
-              await localDb.inventory.put(ri);
-            } else if (!local.updatedAt || (ri.updatedAt && ri.updatedAt >= local.updatedAt)) {
-              // Update metadata AND authoritative currentStock from Firestore
-              await localDb.inventory.put({
-                ...local,
-                productName: ri.productName || local.productName,
-                currentStock: ri.currentStock !== undefined ? Number(ri.currentStock) : local.currentStock,
-                unit: ri.unit || local.unit,
-                lowStockThreshold: ri.lowStockThreshold ?? local.lowStockThreshold,
-                costPerUnit: ri.costPerUnit ?? local.costPerUnit,
-                lastRestockedDate: ri.lastRestockedDate || local.lastRestockedDate,
-                lastRestockedQty: ri.lastRestockedQty ?? local.lastRestockedQty,
-                updatedAt: ri.updatedAt || new Date().toISOString(),
-              });
-            }
+
+      await localDb.transaction('rw', localDb.inventory, async () => {
+        const allLocalInv = await localDb.inventory.toArray();
+        for (const li of allLocalInv) {
+          if (!remoteInvIds.has(li.id)) {
+            await localDb.inventory.delete(li.id);
           }
-        });
-      }
+        }
+        for (const ri of remoteInv) {
+          const local = await localDb.inventory.get(ri.id);
+          if (!local) {
+            await localDb.inventory.put(ri);
+          } else if (!local.updatedAt || (ri.updatedAt && ri.updatedAt >= local.updatedAt)) {
+            // Update metadata AND authoritative currentStock from Firestore
+            await localDb.inventory.put({
+              ...local,
+              productName: ri.productName || local.productName,
+              currentStock: ri.currentStock !== undefined ? Number(ri.currentStock) : local.currentStock,
+              unit: ri.unit || local.unit,
+              lowStockThreshold: ri.lowStockThreshold ?? local.lowStockThreshold,
+              costPerUnit: ri.costPerUnit ?? local.costPerUnit,
+              lastRestockedDate: ri.lastRestockedDate || local.lastRestockedDate,
+              lastRestockedQty: ri.lastRestockedQty ?? local.lastRestockedQty,
+              updatedAt: ri.updatedAt || new Date().toISOString(),
+            });
+          }
+        }
+      });
     }, (err) => console.warn('[SyncEngine] Inventory listener error:', err));
     activeListeners.push(unsubInv);
 
@@ -439,23 +463,29 @@ export async function startRealtimeSync(storeIdentifier?: string): Promise<void>
         }
 
         const remoteShifts: StaffShift[] = [];
+        const remoteShiftIds = new Set<string>();
         snapshot.forEach(d => {
           const data = d.data() as any;
           if (!data.id) data.id = d.id;
           if (!data.isDeleted) {
             remoteShifts.push(data as StaffShift);
+            remoteShiftIds.add(data.id);
           }
         });
-        if (remoteShifts.length > 0) {
-          await localDb.transaction('rw', localDb.shifts, async () => {
-            for (const rs of remoteShifts) {
-              const local = await localDb.shifts.get(rs.id);
-              if (!local || !local.updatedAt || (rs.updatedAt && rs.updatedAt >= local.updatedAt)) {
-                await localDb.shifts.put(rs);
-              }
+        await localDb.transaction('rw', localDb.shifts, async () => {
+          const allLocalShifts = await localDb.shifts.toArray();
+          for (const ls of allLocalShifts) {
+            if (!remoteShiftIds.has(ls.id)) {
+              await localDb.shifts.delete(ls.id);
             }
-          });
-        }
+          }
+          for (const rs of remoteShifts) {
+            const local = await localDb.shifts.get(rs.id);
+            if (!local || !local.updatedAt || (rs.updatedAt && rs.updatedAt >= local.updatedAt)) {
+              await localDb.shifts.put(rs);
+            }
+          }
+        });
       }, (err) => console.warn('[SyncEngine] Shifts listener error:', err));
       activeListeners.push(unsubShifts);
 

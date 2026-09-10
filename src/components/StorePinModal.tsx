@@ -38,6 +38,15 @@ interface StorePinModalProps {
   canCloseWithoutPin?: boolean;
 }
 
+const STORE_TYPE_PRESETS = [
+  'Drinks & Beverages',
+  'Coffee & Cafe',
+  'Bakery & Desserts',
+  'Food & Dining',
+  'Snacks & Refreshments',
+  'Retail & General',
+];
+
 export const StorePinModal: React.FC<StorePinModalProps> = ({
   isOpen,
   onClose,
@@ -46,6 +55,9 @@ export const StorePinModal: React.FC<StorePinModalProps> = ({
 }) => {
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
   const [pinDigits, setPinDigits] = useState<string>('');
+  const [newStoreName, setNewStoreName] = useState<string>('');
+  const [newStoreType, setNewStoreType] = useState<string>('Drinks & Beverages');
+  const [customStoreType, setCustomStoreType] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [currentActivePin, setCurrentActivePin] = useState<string | null>(getStoredPinCode());
@@ -54,19 +66,12 @@ export const StorePinModal: React.FC<StorePinModalProps> = ({
   const [userStores, setUserStores] = useState<UserStoreRecord[]>([]);
   const [loadingUserStores, setLoadingUserStores] = useState<boolean>(false);
 
-  // Load registered stores belonging to this Google user
+  // Load registered stores belonging to this Google user without auto-adopting on other devices
   const fetchUserStores = async (uid: string) => {
     setLoadingUserStores(true);
     try {
       const stores = await getUserRegisteredStores(uid);
       setUserStores(stores);
-      // If user has a registered store PIN and no active PIN is set or user switched accounts
-      if (stores.length > 0) {
-        const userScopedPin = getStoredPinCode(uid) || stores[0].pin;
-        if (userScopedPin && !currentActivePin) {
-          setCurrentActivePin(userScopedPin);
-        }
-      }
     } catch (err) {
       console.warn('[StorePinModal] Error loading user stores:', err);
     } finally {
@@ -79,10 +84,6 @@ export const StorePinModal: React.FC<StorePinModalProps> = ({
       setGoogleUser(user);
       if (user?.uid) {
         fetchUserStores(user.uid);
-        const userPin = getStoredPinCode(user.uid);
-        if (userPin) {
-          setCurrentActivePin(userPin);
-        }
       } else {
         setUserStores([]);
       }
@@ -176,7 +177,14 @@ export const StorePinModal: React.FC<StorePinModalProps> = ({
       }
 
       if (isNewStore) {
-        const data = await registerNewStorePin(pinToUse);
+        const resolvedStoreType = newStoreType === 'Other (Custom)'
+          ? (customStoreType.trim() || 'General Store')
+          : newStoreType;
+        const data = await registerNewStorePin(
+          pinToUse,
+          newStoreName.trim() || undefined,
+          resolvedStoreType
+        );
         setCurrentActivePin(pinToUse);
         if (activeAuth.uid && !activeAuth.isAnonymous) {
           await fetchUserStores(activeAuth.uid);
@@ -339,27 +347,38 @@ export const StorePinModal: React.FC<StorePinModalProps> = ({
                         : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center flex-wrap gap-2">
                         <span className="text-sm font-mono font-black text-amber-300">
                           PIN #{storeRec.pin}
                         </span>
+                        {storeRec.storeType && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-cyan-300 border border-slate-700">
+                            {storeRec.storeType}
+                          </span>
+                        )}
                         {isCurrent && (
-                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                            Active
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                            Active on this device
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] text-slate-400 font-mono block">
-                        {storeRec.role === 'owner' ? 'Store Owner' : 'Store Member'} • {storeRec.storeId.substring(0, 14)}...
-                      </span>
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
+                        <span className="font-semibold text-slate-200">
+                          {storeRec.storeName || 'HERSHE Store'}
+                        </span>
+                        <span className="text-slate-600">•</span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {storeRec.role === 'owner' ? 'Owner' : 'Staff'}
+                        </span>
+                      </div>
                     </div>
 
                     <button
                       type="button"
                       disabled={loading || isCurrent}
                       onClick={() => handleConnectWithPin(storeRec.pin, false)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 ml-2 ${
                         isCurrent
                           ? 'bg-slate-800 text-emerald-400 cursor-default opacity-80'
                           : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md active:scale-95'
@@ -446,6 +465,78 @@ export const StorePinModal: React.FC<StorePinModalProps> = ({
             </p>
           )}
         </div>
+
+        {/* New Store Details: Name and Store Type */}
+        {mode === 'new' && (
+          <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1">
+                Store Name
+              </label>
+              <input
+                type="text"
+                value={newStoreName}
+                onChange={(e) => setNewStoreName(e.target.value)}
+                placeholder="e.g. Branch B - Coffee & Dessert"
+                className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-base text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                Store Type / Category
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {STORE_TYPE_PRESETS.map((t) => {
+                  const isSelected = newStoreType === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        setNewStoreType(t);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setNewStoreType('Other (Custom)')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    newStoreType === 'Other (Custom)'
+                      ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Other...
+                </button>
+              </div>
+
+              {newStoreType === 'Other (Custom)' && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={customStoreType}
+                    onChange={(e) => setCustomStoreType(e.target.value)}
+                    placeholder="Specify store type (e.g. Apparel, Bakery, Food Truck)"
+                    className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-base text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400">
+              💡 <span className="text-slate-300 font-semibold">Store Isolation:</span> Each PIN represents an independent store partition. Data is never shared or synced between Store A and Store B.
+            </div>
+          </div>
+        )}
 
         {/* 4 Discrete PIN Display Boxes */}
         <div className="flex items-center justify-center gap-3 py-1">

@@ -96,6 +96,7 @@ export interface CustomAddon {
 
 export interface StoreInfoSettings {
   storeName: string;
+  storeType?: string;
   whatsappNumber: string;
   location: string;
   bankName: string;

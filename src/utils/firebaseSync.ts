@@ -10,10 +10,44 @@ export interface UserStoreRecord {
   pin: string;
   role: 'owner' | 'staff';
   storeName?: string;
+  storeType?: string;
   registeredAt?: string;
 }
 
 const STORE_PIN_KEY = 'hershe_pos_store_pin';
+
+/**
+ * Clears all local IndexedDB entity records and sync queue for clean store isolation.
+ * Prevents Store A data from ever leaking into Store B when switching or registering.
+ */
+export async function clearLocalStoreData(): Promise<void> {
+  stopRealtimeSync();
+  await localDb.transaction('rw', [
+    localDb.products,
+    localDb.orders,
+    localDb.orderItems,
+    localDb.expenses,
+    localDb.pendingOrders,
+    localDb.shifts,
+    localDb.distributions,
+    localDb.inventory,
+    localDb.inventoryLogs,
+    localDb.inventoryMovements,
+    localDb.syncQueue,
+  ], async () => {
+    await localDb.products.clear();
+    await localDb.orders.clear();
+    await localDb.orderItems.clear();
+    await localDb.expenses.clear();
+    await localDb.pendingOrders.clear();
+    await localDb.shifts.clear();
+    await localDb.distributions.clear();
+    await localDb.inventory.clear();
+    await localDb.inventoryLogs.clear();
+    await localDb.inventoryMovements.clear();
+    await localDb.syncQueue.clear();
+  });
+}
 
 /**
  * Computes a secure deterministic SHA-256 hash for a store PIN.
@@ -90,6 +124,7 @@ export async function getUserRegisteredStores(uid: string): Promise<UserStoreRec
             pin: String(val.pin || ''),
             role: val.role === 'owner' ? 'owner' : 'staff',
             storeName: val.storeName || undefined,
+            storeType: val.storeType || undefined,
             registeredAt: val.registeredAt || val.connectedAt || undefined,
           });
         }
@@ -119,7 +154,11 @@ export async function getUserRegisteredStores(uid: string): Promise<UserStoreRec
  * 5. Adds authenticated user to /stores/{storeId}/members/{uid} with valid pinHash proof.
  * 6. Creates store metadata at /stores/{storeId}/meta/info.
  */
-export async function registerNewStorePin(pinCode: string): Promise<StorageData> {
+export async function registerNewStorePin(
+  pinCode: string,
+  storeName?: string,
+  storeType?: string
+): Promise<StorageData> {
   const pin = pinCode.trim();
   if (pin.length !== 4 || !/^\d{4}$/.exec(pin)) {
     throw new Error('Store PIN must be exactly 4 numeric digits.');
@@ -159,8 +198,13 @@ export async function registerNewStorePin(pinCode: string): Promise<StorageData>
   const permanentStoreId = `store_${randomUuid}`;
 
   const nowIso = new Date().toISOString();
+  const finalStoreName = (storeName && storeName.trim()) || 'HERSHE Store';
+  const finalStoreType = (storeType && storeType.trim()) || 'Drinks & Beverages';
 
-  // 5. Register PIN mapping in /store_pins/{pinHash}
+  // 5. CRITICAL: Clean local store data before registering so old store items never pollute the new store
+  await clearLocalStoreData();
+
+  // 6. Register PIN mapping in /store_pins/{pinHash}
   try {
     await setDoc(pinRef, {
       pinHash,
@@ -177,9 +221,26 @@ export async function registerNewStorePin(pinCode: string): Promise<StorageData>
     throw pinErr;
   }
 
-  // 6. Atomically register store member and metadata in writeBatch
+  // 7. Atomically register store member and metadata in writeBatch
   const memberRef = doc(firestoreDb, 'stores', permanentStoreId, 'members', authUser.uid);
   const metaRef = doc(firestoreDb, 'stores', permanentStoreId, 'meta', 'info');
+  const settingsRef = doc(firestoreDb, 'stores', permanentStoreId, 'meta', 'settings');
+
+  const initialStoreInfo = {
+    storeName: finalStoreName,
+    storeType: finalStoreType,
+    whatsappNumber: '6738881234',
+    location: 'Store Location',
+    bankName: 'BIBD / Baiduri',
+    bankAccountNumber: '00-001-01-7890123',
+    bankAccountHolder: finalStoreName.toUpperCase(),
+    instructions: 'Please make payment to the bank account above and attach your payment receipt screenshot when WhatsApp opens!',
+    isPreOrderOpen: true,
+    closedMessage: 'We are currently closed for pre-orders.',
+    bannerTitle: `Pre-Order ${finalStoreName}`,
+    bannerSubtitle: 'Order ahead for speedy pickup!',
+    addons: [],
+  };
 
   try {
     const batch = writeBatch(firestoreDb);
@@ -194,25 +255,36 @@ export async function registerNewStorePin(pinCode: string): Promise<StorageData>
     batch.set(metaRef, {
       storeId: permanentStoreId,
       storePinHash: pinHash,
+      storeName: finalStoreName,
+      storeType: finalStoreType,
       ownerUid: authUser.uid,
       ownerEmail: authUser.email || '',
       createdAt: nowIso,
       updatedAt: nowIso,
     }, { merge: true });
+    batch.set(settingsRef, {
+      storeInfo: initialStoreInfo,
+      updatedAt: nowIso,
+    }, { merge: true });
 
     await batch.commit();
   } catch (batchErr) {
-    // Rollback orphaned PIN registration if membership creation fails
     console.error('[FirebaseSync] Store registration batch failed, rolling back PIN:', batchErr);
     await deleteDoc(pinRef).catch(() => {});
     throw new Error('Failed to complete store registration. Please try again.');
   }
 
-  // 7. Store settings locally and in user profile
+  // 8. Store settings locally on THIS device
   await setStorePin(pin);
   await setStoreId(permanentStoreId);
   setStoredPinCode(pin, authUser.uid);
   localStorage.setItem(`hershe_pos_store_id_${authUser.uid}`, permanentStoreId);
+  localStorage.setItem('hershe_store_info_settings', JSON.stringify(initialStoreInfo));
+  await localDb.appSettings.put({
+    key: 'hershe_store_info_settings',
+    value: initialStoreInfo,
+    updatedAt: nowIso,
+  });
 
   // Update user document with registered store
   try {
@@ -221,14 +293,13 @@ export async function registerNewStorePin(pinCode: string): Promise<StorageData>
       uid: authUser.uid,
       email: authUser.email || '',
       displayName: authUser.displayName || '',
-      lastActiveStoreId: permanentStoreId,
-      lastActivePin: pin,
       stores: {
         [permanentStoreId]: {
           storeId: permanentStoreId,
           pin: pin,
           role: 'owner',
-          storeName: 'Hershe Store',
+          storeName: finalStoreName,
+          storeType: finalStoreType,
           registeredAt: nowIso,
         }
       },
@@ -238,28 +309,17 @@ export async function registerNewStorePin(pinCode: string): Promise<StorageData>
     console.warn('[FirebaseSync] User profile update skipped:', userErr);
   }
 
-  // 8. Start real-time sync with permanent storeId
-  startRealtimeSync(permanentStoreId);
-  triggerSync();
-
-  const [products, orders, expenses, pendingOrders, shifts, inventory, inventoryLogs] = await Promise.all([
-    localDb.products.toArray(),
-    localDb.orders.toArray(),
-    localDb.expenses.toArray(),
-    localDb.pendingOrders.toArray(),
-    localDb.shifts.toArray(),
-    localDb.inventory.toArray(),
-    localDb.inventoryLogs.toArray(),
-  ]);
+  // 9. Start real-time sync with new permanent storeId
+  await startRealtimeSync(permanentStoreId);
 
   return {
-    products: products.filter(p => !p.isDeleted),
-    orders: orders.filter(o => !o.isDeleted),
-    expenses: expenses.filter(e => !e.isDeleted),
-    pendingOrders: pendingOrders.filter(p => !p.isDeleted),
-    shifts,
-    inventory,
-    inventoryLogs,
+    products: [],
+    orders: [],
+    expenses: [],
+    pendingOrders: [],
+    shifts: [],
+    inventory: [],
+    inventoryLogs: [],
     currentUser: null,
     distributions: {},
   };
@@ -269,7 +329,8 @@ export async function registerNewStorePin(pinCode: string): Promise<StorageData>
  * Connect to an existing 4-digit PIN store account.
  * 1. Hashes PIN and resolves storeId from /store_pins/{pinHash}.
  * 2. Proves knowledge of pinHash to authorize user in /stores/{storeId}/members/{uid}.
- * 3. Sets permanent storeId and PIN in local settings.
+ * 3. Cleans local state to guarantee absolute store isolation.
+ * 4. Sets permanent storeId and PIN in local settings.
  */
 export async function connectExistingStorePin(pinCode: string): Promise<StorageData> {
   const pin = pinCode.trim();
@@ -307,7 +368,6 @@ export async function connectExistingStorePin(pinCode: string): Promise<StorageD
 
     if (legacySnap && legacySnap.exists()) {
       targetStoreId = legacyStoreId;
-      // Auto-migrate to secure store_pins
       await setDoc(pinRef, {
         pinHash,
         storeId: legacyStoreId,
@@ -319,7 +379,7 @@ export async function connectExistingStorePin(pinCode: string): Promise<StorageD
   }
 
   if (!targetStoreId) {
-    throw new Error(`Store PIN "${pin}" not found. Please verify your PIN or select "Create New Store".`);
+    throw new Error(`Store PIN "${pin}" not found. Please verify your PIN or select "Register New Store".`);
   }
 
   // 2. Authorize current user as member in /stores/{targetStoreId}/members/{uid} with valid pinHash proof
@@ -334,7 +394,40 @@ export async function connectExistingStorePin(pinCode: string): Promise<StorageD
     lastActiveAt: nowIso,
   }, { merge: true });
 
-  // 3. Save resolved store identity locally and in user profile
+  // 3. CRITICAL: Clean local Dexie tables before connecting to a different store
+  await clearLocalStoreData();
+
+  // 4. Fetch target store info & metadata
+  let connectedStoreName = 'HERSHE Store';
+  let connectedStoreType = 'Drinks & Beverages';
+
+  try {
+    const metaInfoRef = doc(firestoreDb, 'stores', targetStoreId, 'meta', 'info');
+    const metaInfoSnap = await getDoc(metaInfoRef).catch(() => null);
+    if (metaInfoSnap && metaInfoSnap.exists()) {
+      const data = metaInfoSnap.data();
+      if (data?.storeName) connectedStoreName = data.storeName;
+      if (data?.storeType) connectedStoreType = data.storeType;
+    }
+
+    const metaSettingsRef = doc(firestoreDb, 'stores', targetStoreId, 'meta', 'settings');
+    const metaSettingsSnap = await getDoc(metaSettingsRef).catch(() => null);
+    if (metaSettingsSnap && metaSettingsSnap.exists()) {
+      const sData = metaSettingsSnap.data();
+      if (sData?.storeInfo && typeof sData.storeInfo === 'object') {
+        localStorage.setItem('hershe_store_info_settings', JSON.stringify(sData.storeInfo));
+        await localDb.appSettings.put({
+          key: 'hershe_store_info_settings',
+          value: sData.storeInfo,
+          updatedAt: nowIso,
+        });
+      }
+    }
+  } catch (mErr) {
+    console.warn('[FirebaseSync] Failed reading target store metadata:', mErr);
+  }
+
+  // 5. Save resolved store identity locally on THIS device
   await setStorePin(pin);
   await setStoreId(targetStoreId);
   setStoredPinCode(pin, authUser.uid);
@@ -347,13 +440,13 @@ export async function connectExistingStorePin(pinCode: string): Promise<StorageD
       uid: authUser.uid,
       email: authUser.email || '',
       displayName: authUser.displayName || '',
-      lastActiveStoreId: targetStoreId,
-      lastActivePin: pin,
       stores: {
         [targetStoreId]: {
           storeId: targetStoreId,
           pin: pin,
           role: 'staff',
+          storeName: connectedStoreName,
+          storeType: connectedStoreType,
           connectedAt: nowIso,
         }
       },
@@ -363,9 +456,11 @@ export async function connectExistingStorePin(pinCode: string): Promise<StorageD
     console.warn('[FirebaseSync] User profile connection update skipped:', userErr);
   }
 
-  // 4. Start real-time sync with resolved storeId
-  startRealtimeSync(targetStoreId);
-  triggerSync();
+  // 6. Start real-time sync with resolved storeId
+  await startRealtimeSync(targetStoreId);
+
+  // Allow brief window for initial real-time snapshot to populate localDb
+  await new Promise((r) => setTimeout(r, 400));
 
   const [products, orders, expenses, pendingOrders, shifts, inventory, inventoryLogs] = await Promise.all([
     localDb.products.toArray(),

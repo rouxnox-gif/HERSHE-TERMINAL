@@ -118,13 +118,12 @@ export const StaffCheckInModal: React.FC<StaffCheckInModalProps> = ({
                   setErrorMsg(null);
                 }}
                 placeholder="e.g. Type your name"
-                className={`w-full pl-10 pr-4 py-3 bg-slate-950 border rounded-xl text-xs font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none transition
+                className={`w-full pl-10 pr-4 py-3 bg-slate-950 border rounded-xl text-base font-semibold text-slate-100 placeholder:text-slate-600 focus:outline-none transition
                   ${detectedAdmin 
                     ? 'border-amber-500/60 focus:border-amber-400 bg-amber-950/10' 
                     : 'border-slate-800 focus:border-emerald-500'
                   }
                 `}
-                autoFocus
               />
             </div>
 

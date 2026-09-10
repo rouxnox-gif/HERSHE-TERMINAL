@@ -14,6 +14,7 @@ export const DEFAULT_ADDONS: CustomAddon[] = [];
 
 export const DEFAULT_STORE_INFO: StoreInfoSettings = {
   storeName: 'HERSHE Drinks & Juices',
+  storeType: 'Drinks & Beverages',
   whatsappNumber: '6738881234',
   location: 'Binti Gym, Brunei',
   bankName: 'BIBD / Baiduri',
@@ -266,6 +267,7 @@ export async function saveStoreInfoSettings(info: StoreInfoSettings): Promise<vo
         await setDoc(infoRef, {
           isPreOrderOpen: info.isPreOrderOpen !== false,
           storeName: info.storeName || '',
+          storeType: info.storeType || 'Drinks & Beverages',
           whatsappNumber: info.whatsappNumber || '',
           updatedAt: nowIso,
         }, { merge: true });

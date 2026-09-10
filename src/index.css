@@ -18,8 +18,12 @@ html, body, #root {
   touch-action: manipulation;
 }
 
-/* Prevent iOS auto-zoom on input focus by enforcing 16px font-size on mobile */
-@media screen and (max-width: 768px) {
+/* Prevent iOS, iPadOS and Android tablet/mobile auto-zoom on input focus */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+@media screen and (max-width: 1366px), (pointer: coarse) {
   input, select, textarea {
     font-size: 16px !important;
   }
