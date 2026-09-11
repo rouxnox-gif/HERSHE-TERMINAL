@@ -267,6 +267,15 @@ export async function registerNewStorePin(
       updatedAt: nowIso,
     }, { merge: true });
 
+    // Register public PIN reference so customers with link ?tab=customer&pin={pin} resolve immediately
+    const publicPinRef = doc(firestoreDb, 'public', `pin_${pin}`);
+    batch.set(publicPinRef, {
+      pin,
+      storeId: permanentStoreId,
+      storeName: finalStoreName,
+      updatedAt: nowIso,
+    }, { merge: true });
+
     await batch.commit();
   } catch (batchErr) {
     console.error('[FirebaseSync] Store registration batch failed, rolling back PIN:', batchErr);
@@ -452,6 +461,15 @@ export async function connectExistingStorePin(pinCode: string): Promise<StorageD
       },
       updatedAt: nowIso,
     }, { merge: true });
+
+    // Also register or refresh public PIN mapping
+    const publicPinRef = doc(firestoreDb, 'public', `pin_${pin}`);
+    await setDoc(publicPinRef, {
+      pin,
+      storeId: targetStoreId,
+      storeName: connectedStoreName,
+      updatedAt: nowIso,
+    }, { merge: true }).catch(() => {});
   } catch (userErr) {
     console.warn('[FirebaseSync] User profile connection update skipped:', userErr);
   }
@@ -509,5 +527,47 @@ export async function forceSyncNow(): Promise<{ success: boolean; pushedCount: n
  */
 export async function saveDataToFirebase(data?: StorageData): Promise<void> {
   triggerSync();
+}
+
+/**
+ * Resolves a 4-digit PIN to its unique permanent storeId.
+ * Checks /public/pin_{pin}, /store_pins/{pinHash}, and legacy store_{pin}.
+ * Safe for unauthenticated customers accessing customer pre-order links.
+ */
+export async function resolveStoreIdFromPin(pin: string): Promise<string | null> {
+  const clean = (pin || '').trim();
+  if (!clean || clean.length !== 4 || !/^\d{4}$/.exec(clean)) return null;
+
+  try {
+    // 1. Check public PIN registry (accessible without authentication)
+    const pubRef = doc(firestoreDb, 'public', `pin_${clean}`);
+    const pubSnap = await getDoc(pubRef).catch(() => null);
+    if (pubSnap && pubSnap.exists()) {
+      const data = pubSnap.data();
+      if (data?.storeId) return data.storeId;
+    }
+
+    // 2. Check store_pins by hash (if authenticated)
+    const pinHash = await hashStorePin(clean);
+    const pinRef = doc(firestoreDb, 'store_pins', pinHash);
+    const pinSnap = await getDoc(pinRef).catch(() => null);
+    if (pinSnap && pinSnap.exists()) {
+      const data = pinSnap.data();
+      if (data?.storeId) return data.storeId;
+    }
+
+    // 3. Fallback: check legacy store_{pin}
+    const legacyId = `store_${clean}`;
+    const legacyRef = doc(firestoreDb, 'stores', legacyId, 'meta', 'info');
+    const legacySnap = await getDoc(legacyRef).catch(() => null);
+    if (legacySnap && legacySnap.exists()) {
+      return legacyId;
+    }
+
+    return legacyId;
+  } catch (err) {
+    console.warn('[FirebaseSync] resolveStoreIdFromPin notice:', err);
+    return `store_${clean}`;
+  }
 }
 

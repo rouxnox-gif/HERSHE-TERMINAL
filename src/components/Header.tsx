@@ -122,31 +122,31 @@ export const Header: React.FC<HeaderProps> = ({
       )}
 
       {/* MOBILE TOP BAR */}
-      <header className="md:hidden bg-slate-950 border-b border-slate-800 p-2.5 sm:p-3 flex items-center justify-between sticky top-0 z-40 shrink-0">
-        <div className="flex items-center gap-2">
+      <header className="md:hidden bg-slate-950 border-b border-slate-800 px-3 py-2 pt-[max(0.6rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 sticky top-0 z-40 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="p-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
             <Store className="w-4 h-4" />
           </div>
-          <div>
-            <h1 className="font-extrabold text-xs tracking-wider text-emerald-400 font-mono leading-none">
+          <div className="min-w-0">
+            <h1 className="font-extrabold text-xs tracking-wider text-emerald-400 font-mono leading-none truncate">
               HERSHE POS
             </h1>
             {currentUser && (
-              <span className={`text-[10px] font-bold block mt-0.5 ${currentUser.role === 'admin' ? 'text-amber-400' : 'text-slate-300'}`}>
+              <span className={`text-[10px] font-bold block mt-0.5 truncate ${currentUser.role === 'admin' ? 'text-amber-400' : 'text-slate-300'}`}>
                 {currentUser.role === 'admin' ? '⚡ Admin' : '👤 Staff'}: {currentUser.name}
               </span>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 overflow-x-auto no-scrollbar max-w-[65%] justify-end">
           <SyncStatusBadge compact={true} />
 
           {/* Terminal Button at Top for Mobile Staff */}
           {isStaffOnly && (
             <button
               onClick={() => setActiveTab('sales')}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
+              className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shrink-0 ${
                 activeTab === 'sales'
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
                   : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
@@ -160,7 +160,7 @@ export const Header: React.FC<HeaderProps> = ({
           {onOpenStorePinModal && (
             <button
               onClick={onOpenStorePinModal}
-              className="px-2 py-1 rounded-lg bg-slate-900 border border-amber-500/30 text-amber-300 font-mono font-bold text-[11px] flex items-center gap-1 active:scale-95 transition cursor-pointer"
+              className="px-2 py-1 rounded-lg bg-slate-900 border border-amber-500/30 text-amber-300 font-mono font-bold text-[11px] flex items-center gap-1 active:scale-95 transition cursor-pointer shrink-0"
               title="Store PIN Sync - Connect devices using this 4-digit PIN"
             >
               <Store className="w-3.5 h-3.5 text-amber-400" />
@@ -171,7 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
           {!isStaffOnly && pendingCount > 0 && (
             <button
               onClick={() => setActiveTab('pending')}
-              className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
+              className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1 active:scale-95 transition cursor-pointer shrink-0"
               title={`${preOrdersCount || 0} Pre-Orders, ${pendingApprovalsCount || 0} Pending Approvals`}
             >
               {(preOrdersCount || 0) > 0 && (
@@ -201,7 +201,7 @@ export const Header: React.FC<HeaderProps> = ({
           {currentUser?.role === 'admin' && onOpenSettings && (
             <button
               onClick={onOpenSettings}
-              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-sky-400 hover:text-white transition active:scale-95"
+              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-sky-400 hover:text-white transition active:scale-95 shrink-0"
               title="System Settings & Tabs"
             >
               <Sliders className="w-4 h-4" />
@@ -211,7 +211,7 @@ export const Header: React.FC<HeaderProps> = ({
           {currentUser?.role === 'admin' && onOpenShiftLogs && (
             <button
               onClick={onOpenShiftLogs}
-              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition active:scale-95"
+              className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition active:scale-95 shrink-0"
               title="Staff Shift Logs"
             >
               <Users className="w-4 h-4 text-emerald-400" />
@@ -221,29 +221,37 @@ export const Header: React.FC<HeaderProps> = ({
           {currentUser ? (
             <button
               onClick={onEndShift}
-              className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer"
+              className="px-2 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
               title="End Shift / Log Out"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>End Shift</span>
+              <span className="hidden sm:inline">End Shift</span>
             </button>
           ) : (
             <button
               onClick={() => setActiveTab('sales')}
-              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer"
+              className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
               title="Staff & Admin Sign In"
             >
               <UserCheck className="w-3.5 h-3.5" />
-              <span>Staff Login</span>
+              <span className="hidden sm:inline">Staff Login</span>
             </button>
           )}
         </div>
       </header>
 
-      {/* DESKTOP SIDEBAR PANEL */}
+      {/* Tablet Portrait Backdrop Overlay when Sidebar is open */}
+      {!collapsed && (
+        <div
+          onClick={() => setCollapsed(true)}
+          className="hidden md:block lg:hidden fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-25 transition-opacity"
+        />
+      )}
+
+      {/* DESKTOP & TABLET SIDEBAR PANEL */}
       <aside 
         className={`hidden md:flex bg-slate-950 border-r border-slate-800 flex-col shrink-0 transition-all duration-300 z-30 h-screen
-          ${collapsed ? 'w-0 border-none p-0 overflow-hidden opacity-0 pointer-events-none' : 'w-60 opacity-100'}
+          ${collapsed ? 'w-0 border-none p-0 overflow-hidden opacity-0 pointer-events-none' : 'w-60 opacity-100 md:max-lg:fixed md:max-lg:top-0 md:max-lg:left-0 md:max-lg:bottom-0 md:max-lg:shadow-2xl'}
         `}
       >
         {/* Brand & Collapse Header */}
@@ -369,7 +377,12 @@ export const Header: React.FC<HeaderProps> = ({
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                    setCollapsed(true);
+                  }
+                }}
                 className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-semibold transition cursor-pointer text-left
                   ${isActive 
                     ? 'bg-slate-800/90 text-white border-l-4 border-emerald-500 shadow-sm font-bold' 
@@ -462,7 +475,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* MOBILE BOTTOM DOCKED NAVIGATION (Admin only - Staff has Terminal at top) */}
       {!isStaffOnly && (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800 py-1.5 px-2 shadow-2xl flex items-center justify-around">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800 py-1.5 px-2 pb-[max(0.6rem,calc(env(safe-area-inset-bottom)+0.35rem))] shadow-2xl flex items-center justify-around">
           {primaryMobileTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -512,7 +525,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* MOBILE MORE MENU BOTTOM SHEET (Admin only) */}
       {!isStaffOnly && mobileMoreOpen && (
-        <div className="md:hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex flex-col justify-end p-3 animate-in fade-in duration-200">
+        <div className="md:hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex flex-col justify-end p-3 pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-2xl">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <span className="font-extrabold text-sm text-white flex items-center gap-2">

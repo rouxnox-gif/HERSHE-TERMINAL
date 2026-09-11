@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Product, InventoryItem, PendingOrder, PaymentTypeConfig, StoreInfoSettings, CustomAddon, UserSession } from '../types';
 import { getBruneiDateString, getBruneiTimeString } from '../data/initialData';
 import { DEFAULT_ADDONS, DEFAULT_STORE_INFO, getStoreId } from '../db/repositories/appSettingsRepo';
+import { resolveStoreIdFromPin, getStoredPinCode } from '../utils/firebaseSync';
 import { db as firestoreDb } from '../lib/firebase';
 import { doc, onSnapshot, collection, getDocs, setDoc } from 'firebase/firestore';
 import {
@@ -40,7 +41,8 @@ import {
   Square,
   ExternalLink,
   Lock,
-  Coffee
+  Coffee,
+  KeyRound
 } from 'lucide-react';
 
 interface CustomerPreOrderViewProps {
@@ -53,6 +55,7 @@ interface CustomerPreOrderViewProps {
   onSaveStoreInfo?: (info: StoreInfoSettings) => Promise<void> | void;
   standalone?: boolean;
   onNavigateToTerminal?: () => void;
+  activePinCode?: string | null;
 }
 
 interface CartItem {
@@ -81,11 +84,19 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   onSaveStoreInfo,
   standalone = false,
   onNavigateToTerminal,
+  activePinCode,
 }) => {
   const [currentStoreInfo, setCurrentStoreInfo] = useState<StoreInfoSettings>(storeInfo);
   const [activeStoreId, setActiveStoreId] = useState<string>('');
+  const [currentPinState, setCurrentPinState] = useState<string>(activePinCode || getStoredPinCode() || '');
   const [firestoreProducts, setFirestoreProducts] = useState<Product[] | null>(null);
   const [firestoreInventory, setFirestoreInventory] = useState<InventoryItem[] | null>(null);
+
+  useEffect(() => {
+    if (activePinCode) {
+      setCurrentPinState(activePinCode);
+    }
+  }, [activePinCode]);
 
   useEffect(() => {
     if (storeInfo) {
@@ -99,11 +110,22 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
     let unsubInventory: (() => void) | null = null;
 
     async function initStoreListeners() {
-      // 1. First check URL search parameter for explicit store isolation
+      // 1. First check URL search parameters for explicit store isolation & PIN
       let resolvedId = '';
+      let urlPin = '';
       if (typeof window !== 'undefined') {
         const urlParams = new URLSearchParams(window.location.search);
         resolvedId = urlParams.get('store') || urlParams.get('storeId') || urlParams.get('s') || '';
+        urlPin = urlParams.get('pin') || urlParams.get('p') || '';
+      }
+
+      if (urlPin) {
+        setCurrentPinState(urlPin);
+      }
+
+      // If URL has pin parameter and no storeId, resolve storeId via public PIN registry or store_{urlPin}
+      if (!resolvedId && urlPin) {
+        resolvedId = (await resolveStoreIdFromPin(urlPin)) || '';
       }
 
       // 2. If not in URL, query repository storeId
@@ -207,9 +229,11 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   const isPreOrderOpen = currentStoreInfo.isPreOrderOpen !== false;
   const isAdmin = !standalone && currentUser?.role === 'admin';
 
-  // Computed direct customer link including active storeId parameter.
+  // Computed direct customer link uniquely identifying the store by both PIN and storeId.
   // Explicitly excludes internal POS terminal domains (like https://hershe-terminal.binti.workers.dev)
   const customerShareUrl = useMemo(() => {
+    const pin = currentPinState || activePinCode || getStoredPinCode();
+
     // 1. If explicit customPortalUrl is configured and NOT the internal terminal worker domain
     if (currentStoreInfo.customPortalUrl && currentStoreInfo.customPortalUrl.trim().startsWith('http')) {
       const trimmed = currentStoreInfo.customPortalUrl.trim();
@@ -217,6 +241,9 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
         try {
           const urlObj = new URL(trimmed);
           urlObj.searchParams.set('tab', 'customer');
+          if (pin) {
+            urlObj.searchParams.set('pin', pin);
+          }
           if (activeStoreId) {
             urlObj.searchParams.set('store', activeStoreId);
           }
@@ -237,16 +264,28 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
       ) {
         // Use clean Google Cloud Run shared customer web app
         const base = PUBLIC_CUSTOMER_PORTAL_URL;
-        return activeStoreId ? `${base}?tab=customer&store=${activeStoreId}` : `${base}?tab=customer`;
+        const params = new URLSearchParams();
+        params.set('tab', 'customer');
+        if (pin) params.set('pin', pin);
+        if (activeStoreId) params.set('store', activeStoreId);
+        return `${base}?${params.toString()}`;
       }
 
       const pathname = window.location.pathname || '';
       const base = `${origin}${pathname}`;
-      return activeStoreId ? `${base}?tab=customer&store=${activeStoreId}` : `${base}?tab=customer`;
+      const params = new URLSearchParams();
+      params.set('tab', 'customer');
+      if (pin) params.set('pin', pin);
+      if (activeStoreId) params.set('store', activeStoreId);
+      return `${base}?${params.toString()}`;
     }
 
-    return activeStoreId ? `${PUBLIC_CUSTOMER_PORTAL_URL}?tab=customer&store=${activeStoreId}` : `${PUBLIC_CUSTOMER_PORTAL_URL}?tab=customer`;
-  }, [activeStoreId, currentStoreInfo.customPortalUrl]);
+    const params = new URLSearchParams();
+    params.set('tab', 'customer');
+    if (pin) params.set('pin', pin);
+    if (activeStoreId) params.set('store', activeStoreId);
+    return `${PUBLIC_CUSTOMER_PORTAL_URL}?${params.toString()}`;
+  }, [activeStoreId, currentPinState, activePinCode, currentStoreInfo.customPortalUrl]);
 
   // Available addons (active list)
   const allAddons: CustomAddon[] = useMemo(() => {
@@ -840,7 +879,7 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
       )}
 
       {/* TOP HERO HEADER */}
-      <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+      <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-30 shadow-lg pt-[max(0.5rem,env(safe-area-inset-top))]">
         <div className="max-w-4xl mx-auto px-4 py-3 sm:py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 p-0.5 shadow-md shadow-emerald-500/20 shrink-0">
@@ -899,7 +938,7 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
       </header>
 
       {/* MAIN CONTAINER */}
-      <main className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5">
+      <main className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5 pb-[max(5rem,calc(env(safe-area-inset-bottom)+4rem))]">
         {/* PRE-ORDER CLOSED BANNER (Shown if closed) */}
         {!isPreOrderOpen && (
           <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-rose-950/80 via-slate-900 to-rose-950/60 border border-rose-500/40 shadow-xl space-y-2.5">
@@ -1259,7 +1298,7 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
 
       {/* FLOATING CART BAR AT BOTTOM */}
       {cart.length > 0 && !cartDrawerOpen && (
-        <div className="fixed bottom-3 sm:bottom-5 left-0 right-0 z-40 px-3 max-w-lg mx-auto animate-in slide-in-from-bottom-5 duration-200">
+        <div className="fixed bottom-[max(0.75rem,calc(env(safe-area-inset-bottom)+0.5rem))] sm:bottom-5 left-0 right-0 z-40 px-3 max-w-lg mx-auto animate-in slide-in-from-bottom-5 duration-200">
           <div className="p-3 rounded-2xl bg-slate-900 border border-emerald-500/40 shadow-2xl backdrop-blur-lg flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-sm shrink-0">
@@ -1743,13 +1782,20 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
                   <span className="text-xs font-black text-white block">
                     {currentStoreInfo.storeName || 'Dedicated Store'}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    {activeStoreId ? `Store ID: ${activeStoreId.substring(0, 18)}...` : 'Active Store'}
-                  </span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {currentPinState && (
+                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold text-[9px] border border-amber-500/30">
+                        PIN #{currentPinState}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {activeStoreId ? `Store ID: ${activeStoreId.substring(0, 16)}...` : 'Active Store'}
+                    </span>
+                  </div>
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
-                Isolated
+                Unique PIN Link
               </span>
             </div>
 
@@ -1768,7 +1814,7 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Display or print this QR Code at the cashier counter. When customers scan it with their phone camera, it connects exclusively to <strong>{currentStoreInfo.storeName}</strong> without requiring any account login.
+              Display or print this QR Code at the cashier counter. When customers scan it with their phone camera on iPhone, iPad, or Android, it connects exclusively to <strong>{currentStoreInfo.storeName}</strong> {currentPinState ? `(Store PIN #${currentPinState})` : ''} without requiring any account login.
             </p>
 
             {/* Customer Pre-Order Web Address (URL) Section */}

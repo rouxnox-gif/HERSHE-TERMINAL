@@ -439,15 +439,15 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   };
 
   return (
-    <div className="h-full flex flex-col p-3 md:p-6 max-w-7xl mx-auto w-full overflow-hidden">
-      {/* Mobile Sub-Navigation Tabs */}
-      <div className="flex md:hidden gap-2 mb-3">
+    <div className="h-full flex flex-col p-2.5 sm:p-4 md:p-6 max-w-7xl mx-auto w-full overflow-hidden">
+      {/* Mobile & Tablet Portrait Sub-Navigation Tabs */}
+      <div className="flex lg:hidden gap-2 mb-3 shrink-0">
         <button
           onClick={() => setMobileSubTab('menu')}
-          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition
+          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition cursor-pointer active:scale-98
             ${mobileSubTab === 'menu'
               ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md'
-              : 'bg-slate-900 text-slate-400 border-slate-800'
+              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
             }
           `}
         >
@@ -455,10 +455,10 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
         </button>
         <button
           onClick={() => setMobileSubTab('ticket')}
-          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition relative
+          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border transition relative cursor-pointer active:scale-98
             ${mobileSubTab === 'ticket'
               ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md'
-              : 'bg-slate-900 text-slate-400 border-slate-800'
+              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
             }
           `}
         >
@@ -471,11 +471,11 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
         </button>
       </div>
 
-      <div className={`grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 min-h-0 overflow-hidden ${totalItemCount > 0 ? 'pb-20 md:pb-0' : ''}`}>
+      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 flex-1 min-h-0 overflow-hidden ${totalItemCount > 0 && mobileSubTab === 'menu' ? 'pb-24 lg:pb-0' : ''}`}>
         {/* CATALOG PANEL (Left) */}
         <div 
-          className={`md:col-span-7 lg:col-span-8 bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-3.5 flex flex-col min-h-0 shadow-xl
-            ${mobileSubTab === 'menu' ? 'flex' : 'hidden md:flex'}
+          className={`lg:col-span-7 xl:col-span-8 bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-3.5 flex flex-col min-h-0 shadow-xl
+            ${mobileSubTab === 'menu' ? 'flex' : 'hidden lg:flex'}
           `}
         >
           {/* Header Row */}
@@ -540,7 +540,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
           </div>
 
           {/* Compact Product Grid */}
-          <div className="flex-1 overflow-y-auto no-scrollbar pr-1 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 content-start items-start min-h-0 py-1">
+          <div className="flex-1 overflow-y-auto no-scrollbar pr-1 grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 content-start items-start min-h-0 py-1">
             {products.length === 0 ? (
               <div className="col-span-full py-12 px-4 text-center bg-slate-950/60 rounded-2xl border border-dashed border-slate-800 flex flex-col items-center justify-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
@@ -713,8 +713,8 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
         {/* CHECKOUT TICKET PANEL (Right) */}
         <div 
-          className={`md:col-span-5 lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col min-h-0 shadow-xl
-            ${mobileSubTab === 'ticket' ? 'flex' : 'hidden md:flex'}
+          className={`lg:col-span-5 xl:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col min-h-0 shadow-xl
+            ${mobileSubTab === 'ticket' ? 'flex' : 'hidden lg:flex'}
           `}
         >
           <div className="flex items-center justify-between pb-3 border-b-2 border-slate-800">
@@ -1377,7 +1377,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
       {/* MOBILE PAY NOW POP-UP MODAL */}
       {isMobilePayModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col space-y-4 p-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col space-y-4 p-5 pb-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.75rem))] sm:pb-5 max-h-[92dvh] overflow-y-auto">
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -1502,9 +1502,9 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
           </div>
         </div>
       )}
-      {/* FLOATING MOBILE STICKY CHECKOUT BAR */}
-      {totalItemCount > 0 && (
-        <div className="md:hidden fixed bottom-3 left-3 right-3 z-40 bg-slate-900/95 backdrop-blur-lg border-2 border-emerald-500/50 rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-3 animate-in slide-in-from-bottom-4 duration-200">
+      {/* FLOATING MOBILE & TABLET PORTRAIT STICKY CHECKOUT BAR */}
+      {totalItemCount > 0 && mobileSubTab === 'menu' && (
+        <div className="lg:hidden fixed bottom-[max(0.75rem,calc(env(safe-area-inset-bottom)+0.5rem))] left-3 right-3 sm:left-6 sm:right-6 max-w-lg mx-auto z-40 bg-slate-900/95 backdrop-blur-lg border-2 border-emerald-500/50 rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-3 animate-in slide-in-from-bottom-4 duration-200">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 shrink-0">
               <ShoppingBag className="w-5 h-5" />
@@ -1522,7 +1522,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={() => setMobileSubTab('ticket')}
-              className="py-2.5 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700/80 transition cursor-pointer active:scale-95"
+              className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700/80 transition cursor-pointer active:scale-95"
             >
               Ticket
             </button>
@@ -1531,7 +1531,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
               className="py-2.5 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
             >
               <CreditCard className="w-4 h-4" />
-              <span>Checkout Now</span>
+              <span>Checkout</span>
             </button>
           </div>
         </div>
