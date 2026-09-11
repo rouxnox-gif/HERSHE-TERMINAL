@@ -110,7 +110,7 @@ export const Header: React.FC<HeaderProps> = ({
       {collapsed && (
         <button
           onClick={() => setCollapsed(false)}
-          className="hidden md:flex fixed top-4 left-4 z-50 items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-emerald-400 shadow-2xl backdrop-blur-md transition active:scale-95 cursor-pointer hover:border-emerald-500/50 group"
+          className="hidden md:flex fixed top-[max(2.5rem,calc(env(safe-area-inset-top,0px)+1.25rem))] left-[max(1.25rem,calc(env(safe-area-inset-left,0px)+1rem))] z-50 items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-900/95 hover:bg-slate-800 border border-slate-700/80 text-emerald-400 shadow-2xl backdrop-blur-md transition active:scale-95 cursor-pointer hover:border-emerald-500/50 group"
           title="Expand Navigation Panel"
         >
           <ChevronRight className="w-5 h-5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
@@ -250,12 +250,12 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* DESKTOP & TABLET SIDEBAR PANEL */}
       <aside 
-        className={`hidden md:flex bg-slate-950 border-r border-slate-800 flex-col shrink-0 transition-all duration-300 z-30 h-screen
+        className={`hidden md:flex bg-slate-950 border-r border-slate-800 flex-col shrink-0 transition-all duration-300 z-30 h-[100dvh]
           ${collapsed ? 'w-0 border-none p-0 overflow-hidden opacity-0 pointer-events-none' : 'w-60 opacity-100 md:max-lg:fixed md:max-lg:top-0 md:max-lg:left-0 md:max-lg:bottom-0 md:max-lg:shadow-2xl'}
         `}
       >
         {/* Brand & Collapse Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-800 h-16 shrink-0">
+        <div className="flex items-center justify-between px-4 pb-3 pt-[max(1.5rem,calc(env(safe-area-inset-top,0px)+0.75rem))] border-b border-slate-800 min-h-[4.75rem] shrink-0">
           <div className="flex items-center gap-2.5 overflow-hidden">
             <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
               <Store className="w-5 h-5" />

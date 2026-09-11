@@ -34,11 +34,11 @@ html {
 }
 
 .safe-top {
-  padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+  padding-top: max(1.5rem, calc(env(safe-area-inset-top, 0px) + 0.5rem));
 }
 
 .safe-bottom {
-  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(0.75rem, calc(env(safe-area-inset-bottom, 0px) + 0.5rem));
 }
 
 @media screen and (max-width: 1366px), (pointer: coarse) {

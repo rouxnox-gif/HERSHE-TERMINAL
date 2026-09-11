@@ -592,7 +592,7 @@ export default function App() {
   if (isCustomerPortalUrl) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
-        <main className="flex-1 h-screen w-full pb-0 bg-slate-950">
+        <main className="flex-1 min-h-[100dvh] w-full pb-0 bg-slate-950">
           <CustomerPreOrderView
             products={products}
             inventory={inventory}
@@ -652,8 +652,8 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto no-scrollbar bg-slate-950 flex flex-col h-[calc(100vh-56px)] md:h-screen pb-20 md:pb-0">
-        <div className="flex-1">
+      <main className="flex-1 overflow-y-auto no-scrollbar bg-slate-950 flex flex-col h-[calc(100dvh-56px)] md:h-[100dvh] pt-[max(0.5rem,env(safe-area-inset-top,0px))] md:pt-[max(1.5rem,calc(env(safe-area-inset-top,0px)+0.75rem))] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)] pb-20 md:pb-0">
+        <div className="flex-1 min-h-0 flex flex-col">
           {/* Customer Pre-Order Portal View (terminal preview mode) */}
           {activeTab === 'customer' && (
             <CustomerPreOrderView

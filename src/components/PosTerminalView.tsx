@@ -439,7 +439,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   };
 
   return (
-    <div className="h-full flex flex-col p-2.5 sm:p-4 md:p-6 max-w-7xl mx-auto w-full overflow-hidden">
+    <div className="h-full flex flex-col p-2.5 sm:p-4 md:px-6 md:pb-6 md:pt-2 max-w-7xl mx-auto w-full overflow-hidden">
       {/* Mobile & Tablet Portrait Sub-Navigation Tabs */}
       <div className="flex lg:hidden gap-2 mb-3 shrink-0">
         <button
