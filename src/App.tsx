@@ -205,6 +205,49 @@ export default function App() {
     }
   }, [currentUser, isCustomerPortalUrl]);
 
+  // Dynamic document title and metadata based on mode (Customer Menu vs Terminal)
+  useEffect(() => {
+    if (isCustomerPortalUrl || activeTab === 'customer') {
+      const storeName = storeInfo?.storeName || 'HERSHE';
+      document.title = `${storeName} | Online Pre-Order & Drinks Menu`;
+      const metaOg = document.querySelector('meta[property="og:title"]');
+      if (metaOg) {
+        metaOg.setAttribute('content', `${storeName} | Online Pre-Order & Drinks Menu`);
+      }
+    } else {
+      document.title = 'Remix Remix HERSHE POS Terminal';
+      const metaOg = document.querySelector('meta[property="og:title"]');
+      if (metaOg) {
+        metaOg.setAttribute('content', 'Remix Remix HERSHE POS Terminal');
+      }
+    }
+  }, [isCustomerPortalUrl, activeTab, storeInfo?.storeName]);
+
+  // Seamlessly redirect customers away from the internal terminal address (hershe-terminal.binti.workers.dev)
+  // to the clean public customer web app so they never see the internal terminal address
+  useEffect(() => {
+    if (isCustomerPortalUrl && typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      if (origin.includes('hershe-terminal.binti.workers.dev') || origin.includes('hershe-terminal')) {
+        const cleanTargetBase = storeInfo?.customPortalUrl &&
+          storeInfo.customPortalUrl.trim().startsWith('http') &&
+          !storeInfo.customPortalUrl.includes('hershe-terminal')
+            ? storeInfo.customPortalUrl.trim()
+            : 'https://ais-pre-gmbspf5pdy4xx5pebvsqhx-694944998158.asia-southeast1.run.app';
+
+        try {
+          const urlObj = new URL(cleanTargetBase);
+          const currentParams = new URLSearchParams(window.location.search);
+          currentParams.set('tab', 'customer');
+          urlObj.search = currentParams.toString();
+          window.location.replace(urlObj.toString());
+        } catch {
+          // Graceful fallback if URL parsing fails
+        }
+      }
+    }
+  }, [isCustomerPortalUrl, storeInfo?.customPortalUrl]);
+
   // Lock staff role strictly to POS terminal view (only while in terminal mode)
   useEffect(() => {
     if (!isCustomerPortalUrl && currentUser?.role === 'staff' && activeTab !== 'sales') {

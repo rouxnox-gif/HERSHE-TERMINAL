@@ -69,6 +69,8 @@ interface CartItem {
   lineTotal: number;
 }
 
+export const PUBLIC_CUSTOMER_PORTAL_URL = 'https://ais-pre-gmbspf5pdy4xx5pebvsqhx-694944998158.asia-southeast1.run.app';
+
 export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   products,
   inventory,
@@ -177,6 +179,12 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   const [copiedBank, setCopiedBank] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
+  // Quick URL editor within QR Share modal
+  const [editingQrUrl, setEditingQrUrl] = useState(false);
+  const [qrCustomUrlInput, setQrCustomUrlInput] = useState('');
+  const [savingQrUrl, setSavingQrUrl] = useState(false);
+  const [qrUrlSavedToast, setQrUrlSavedToast] = useState(false);
+
   // Admin edit portal modal
   const [adminEditModalOpen, setAdminEditModalOpen] = useState(false);
 
@@ -199,26 +207,45 @@ export const CustomerPreOrderView: React.FC<CustomerPreOrderViewProps> = ({
   const isPreOrderOpen = currentStoreInfo.isPreOrderOpen !== false;
   const isAdmin = !standalone && currentUser?.role === 'admin';
 
-  // Computed direct customer link including active storeId parameter
+  // Computed direct customer link including active storeId parameter.
+  // Explicitly excludes internal POS terminal domains (like https://hershe-terminal.binti.workers.dev)
   const customerShareUrl = useMemo(() => {
+    // 1. If explicit customPortalUrl is configured and NOT the internal terminal worker domain
     if (currentStoreInfo.customPortalUrl && currentStoreInfo.customPortalUrl.trim().startsWith('http')) {
-      try {
-        const urlObj = new URL(currentStoreInfo.customPortalUrl.trim());
-        urlObj.searchParams.set('tab', 'customer');
-        if (activeStoreId) {
-          urlObj.searchParams.set('store', activeStoreId);
+      const trimmed = currentStoreInfo.customPortalUrl.trim();
+      if (!trimmed.includes('hershe-terminal.binti.workers.dev') && !trimmed.includes('hershe-terminal')) {
+        try {
+          const urlObj = new URL(trimmed);
+          urlObj.searchParams.set('tab', 'customer');
+          if (activeStoreId) {
+            urlObj.searchParams.set('store', activeStoreId);
+          }
+          return urlObj.toString();
+        } catch {
+          // fallback to clean public URL logic below
         }
-        return urlObj.toString();
-      } catch {
-        // fallback to standard URL logic below
       }
     }
 
-    if (typeof window === 'undefined') return '';
-    const origin = window.location.origin;
-    const pathname = window.location.pathname || '';
-    const base = `${origin}${pathname}`;
-    return activeStoreId ? `${base}?tab=customer&store=${activeStoreId}` : `${base}?tab=customer`;
+    // 2. If running on internal terminal worker, NEVER show or leak hershe-terminal.binti.workers.dev to customers!
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      if (
+        origin.includes('hershe-terminal.binti.workers.dev') ||
+        origin.includes('hershe-terminal') ||
+        origin.includes('workers.dev')
+      ) {
+        // Use clean Google Cloud Run shared customer web app
+        const base = PUBLIC_CUSTOMER_PORTAL_URL;
+        return activeStoreId ? `${base}?tab=customer&store=${activeStoreId}` : `${base}?tab=customer`;
+      }
+
+      const pathname = window.location.pathname || '';
+      const base = `${origin}${pathname}`;
+      return activeStoreId ? `${base}?tab=customer&store=${activeStoreId}` : `${base}?tab=customer`;
+    }
+
+    return activeStoreId ? `${PUBLIC_CUSTOMER_PORTAL_URL}?tab=customer&store=${activeStoreId}` : `${PUBLIC_CUSTOMER_PORTAL_URL}?tab=customer`;
   }, [activeStoreId, currentStoreInfo.customPortalUrl]);
 
   // Available addons (active list)
@@ -1733,7 +1760,7 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
             <div className="p-4 bg-white rounded-2xl flex items-center justify-center shadow-inner mx-auto w-fit">
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
-                  customerShareUrl || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?tab=customer` : 'https://hershe-pos.web.app')
+                  customerShareUrl || `${PUBLIC_CUSTOMER_PORTAL_URL}?tab=customer`
                 )}`}
                 alt="Scan to Pre-Order Drinks"
                 className="w-48 h-48"
@@ -1744,8 +1771,120 @@ ${customerNotes.trim() ? `📝 *Special Notes:* ${customerNotes.trim()}\n━━�
               Display or print this QR Code at the cashier counter. When customers scan it with their phone camera, it connects exclusively to <strong>{currentStoreInfo.storeName}</strong> without requiring any account login.
             </p>
 
-            <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-[10px] font-mono text-slate-300 break-all text-left select-all">
-              {customerShareUrl}
+            {/* Customer Pre-Order Web Address (URL) Section */}
+            <div className="space-y-2 text-left">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
+                  <span>Customer Pre-Order Link</span>
+                  {currentStoreInfo.customPortalUrl && !currentStoreInfo.customPortalUrl.includes('hershe-terminal') ? (
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-mono">Custom Domain</span>
+                  ) : (
+                    <span className="px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 text-[9px] font-mono">Public Portal</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQrCustomUrlInput(currentStoreInfo.customPortalUrl || '');
+                    setEditingQrUrl(!editingQrUrl);
+                  }}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-bold underline cursor-pointer"
+                >
+                  {editingQrUrl ? 'Hide Editor' : 'Change URL...'}
+                </button>
+              </div>
+
+              {/* URL Display */}
+              <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-[10px] font-mono text-slate-300 break-all select-all">
+                {customerShareUrl}
+              </div>
+
+              {/* Inline URL Editor */}
+              {editingQrUrl && (
+                <div className="p-3 bg-slate-950 rounded-2xl border border-emerald-500/30 space-y-2.5 animate-in fade-in">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-300 block">
+                      Custom Customer Web Address / Domain:
+                    </label>
+                    <input
+                      type="url"
+                      value={qrCustomUrlInput}
+                      onChange={(e) => setQrCustomUrlInput(e.target.value)}
+                      placeholder="e.g. https://order.hershedrinks.com or https://hershe-order.binti.workers.dev"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
+                    />
+                    <p className="text-[9px] text-slate-400">
+                      Enter your customer-facing domain or worker. If left blank, it automatically uses the public cloud web app so customers never see the internal terminal address.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={savingQrUrl}
+                      onClick={async () => {
+                        setSavingQrUrl(true);
+                        try {
+                          const sanitized = qrCustomUrlInput.trim();
+                          const updatedInfo: StoreInfoSettings = {
+                            ...currentStoreInfo,
+                            customPortalUrl: sanitized,
+                          };
+                          setCurrentStoreInfo(updatedInfo);
+                          if (onSaveStoreInfo) {
+                            await onSaveStoreInfo(updatedInfo);
+                          }
+                          setQrUrlSavedToast(true);
+                          setTimeout(() => setQrUrlSavedToast(false), 2500);
+                          setEditingQrUrl(false);
+                        } finally {
+                          setSavingQrUrl(false);
+                        }
+                      }}
+                      className="flex-1 py-1.5 px-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+                    >
+                      {savingQrUrl ? 'Saving...' : 'Save Customer URL'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setQrCustomUrlInput('');
+                        setSavingQrUrl(true);
+                        try {
+                          const updatedInfo: StoreInfoSettings = {
+                            ...currentStoreInfo,
+                            customPortalUrl: '',
+                          };
+                          setCurrentStoreInfo(updatedInfo);
+                          if (onSaveStoreInfo) {
+                            await onSaveStoreInfo(updatedInfo);
+                          }
+                          setQrUrlSavedToast(true);
+                          setTimeout(() => setQrUrlSavedToast(false), 2500);
+                          setEditingQrUrl(false);
+                        } finally {
+                          setSavingQrUrl(false);
+                        }
+                      }}
+                      className="py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-medium transition cursor-pointer"
+                    >
+                      Reset to Default
+                    </button>
+                  </div>
+
+                  {qrUrlSavedToast && (
+                    <div className="text-[10px] font-bold text-emerald-400 text-center flex items-center justify-center gap-1">
+                      <Check className="w-3 h-3" />
+                      <span>Saved! QR code & share link updated.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Cashier Terminal URL (<code className="text-slate-300">hershe-terminal.binti.workers.dev</code>) is hidden from customers.</span>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -2233,20 +2372,28 @@ const CustomerPortalEditModal: React.FC<CustomerPortalEditModalProps> = ({
                   />
                 </div>
 
-                <div className="pt-2 border-t border-slate-800/80">
-                  <label className="block text-[11px] font-bold text-slate-300 mb-1 flex items-center justify-between">
-                    <span>Custom Customer Portal Domain / URL (Optional)</span>
-                    <span className="text-[10px] text-emerald-400 font-normal">Auto-configured by default</span>
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <label className="block text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                    <span>Customer Pre-Order Web Address (Domain / URL)</span>
+                    <span className="text-[10px] text-emerald-400 font-normal">Clean Customer Portal</span>
                   </label>
                   <input
                     type="url"
                     value={formData.customPortalUrl || ''}
-                    onChange={(e) => handleFieldChange('customPortalUrl', e.target.value)}
-                    placeholder="e.g. https://order.hershedrinks.com or https://hershe-pos.web.app"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      handleFieldChange('customPortalUrl', val);
+                    }}
+                    placeholder="e.g. https://order.hershedrinks.com or https://hershe-order.binti.workers.dev"
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-xl text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none"
                   />
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    Leave blank to automatically use the public shared preview URL (which opens instantly for all customers with 0 sign-in steps).
+                  {formData.customPortalUrl?.includes('hershe-terminal') && (
+                    <p className="text-[10px] text-amber-400 font-semibold">
+                      ⚠️ Note: This is your internal cashier terminal address. Customers should not access this address. Leave blank to automatically use the public customer portal.
+                    </p>
+                  )}
+                  <p className="text-[10px] text-slate-500">
+                    Leave blank to automatically use the Google Cloud Run public customer pre-order portal (<code className="text-slate-400">ais-pre-gmbspf5pdy4xx5pebvsqhx-694944998158.asia-southeast1.run.app</code>). The internal cashier terminal (<code className="text-slate-400">hershe-terminal.binti.workers.dev</code>) is blocked from customer links.
                   </p>
                 </div>
               </div>

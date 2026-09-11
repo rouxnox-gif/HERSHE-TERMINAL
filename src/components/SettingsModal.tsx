@@ -29,7 +29,11 @@ import {
   Clock,
   FileCheck,
   Store,
+  Globe,
+  ShieldCheck,
+  ExternalLink,
 } from 'lucide-react';
+import { PUBLIC_CUSTOMER_PORTAL_URL } from './CustomerPreOrderView';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -63,12 +67,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateHiddenTabs,
   paymentConfigs = DEFAULT_PAYMENT_CONFIGS,
   onUpdatePaymentConfigs,
+  storeInfo,
+  onUpdateStoreInfo,
+  currentUserRole,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'tabs' | 'payments'>('tabs');
+  const [activeSubTab, setActiveSubTab] = useState<'tabs' | 'payments' | 'customerUrl'>('tabs');
   const [localHiddenTabs, setLocalHiddenTabs] = useState<TabType[]>(hiddenTabs || []);
   const [localPaymentConfigs, setLocalPaymentConfigs] = useState<PaymentTypeConfig[]>(
     paymentConfigs && paymentConfigs.length > 0 ? paymentConfigs : DEFAULT_PAYMENT_CONFIGS
   );
+  const [localPortalUrl, setLocalPortalUrl] = useState('');
   const [newPaymentName, setNewPaymentName] = useState('');
   const [savedToast, setSavedToast] = useState(false);
 
@@ -79,9 +87,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setLocalPaymentConfigs(
         paymentConfigs && paymentConfigs.length > 0 ? paymentConfigs : DEFAULT_PAYMENT_CONFIGS
       );
+      setLocalPortalUrl(storeInfo?.customPortalUrl || '');
       setSavedToast(false);
     }
-  }, [isOpen, hiddenTabs, paymentConfigs]);
+  }, [isOpen, hiddenTabs, paymentConfigs, storeInfo?.customPortalUrl]);
 
   if (!isOpen) return null;
 
@@ -265,6 +274,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
               {currentPaymentsList.length}
             </span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('customerUrl')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+              activeSubTab === 'customerUrl'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            <span>Customer URL</span>
           </button>
         </div>
 
@@ -452,6 +473,115 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Plus className="w-4 h-4" />
                   <span>Add Payment Type</span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: CUSTOMER PORTAL URL */}
+          {activeSubTab === 'customerUrl' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-bold text-slate-200">Customer Pre-Order Portal Address</span>
+                  </div>
+                  {localPortalUrl && !localPortalUrl.includes('hershe-terminal') ? (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-mono border border-emerald-500/30">
+                      Custom Domain
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-mono border border-blue-500/30">
+                      Default Public Portal
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Controls the address printed on cashier counter QR codes and sent to customers for pre-ordering drinks.
+                </p>
+
+                <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 break-all select-all flex items-center justify-between gap-2">
+                  <span>
+                    {localPortalUrl && !localPortalUrl.includes('hershe-terminal')
+                      ? localPortalUrl
+                      : PUBLIC_CUSTOMER_PORTAL_URL}
+                  </span>
+                  <a
+                    href={
+                      localPortalUrl && !localPortalUrl.includes('hershe-terminal')
+                        ? `${localPortalUrl}?tab=customer`
+                        : `${PUBLIC_CUSTOMER_PORTAL_URL}?tab=customer`
+                    }
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="p-1 text-emerald-400 hover:text-emerald-300 transition shrink-0"
+                    title="Open test link in new tab"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 flex items-start gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-slate-200 block font-semibold">Cashier Protection</strong>
+                    <span>Internal terminal domain (<code className="text-slate-300">hershe-terminal.binti.workers.dev</code>) is blocked from customer links. Customers only see the clean public portal.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Configure Custom Domain */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <label className="block text-xs font-bold text-slate-200">
+                  Custom Customer Domain / Worker URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  value={localPortalUrl}
+                  onChange={(e) => setLocalPortalUrl(e.target.value)}
+                  placeholder="e.g. https://order.hershedrinks.com or https://hershe-order.binti.workers.dev"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-xl text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none"
+                />
+                {localPortalUrl.includes('hershe-terminal') && (
+                  <p className="text-[10px] text-amber-400 font-bold">
+                    ⚠️ This is the cashier terminal address. Please do not set this as the customer portal. Leave blank to use the public customer web app.
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!storeInfo || !onUpdateStoreInfo) return;
+                      const sanitized = localPortalUrl.trim();
+                      const updated = {
+                        ...storeInfo,
+                        customPortalUrl: sanitized,
+                      };
+                      await onUpdateStoreInfo(updated);
+                      triggerToast();
+                    }}
+                    className="py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+                  >
+                    Save URL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setLocalPortalUrl('');
+                      if (!storeInfo || !onUpdateStoreInfo) return;
+                      const updated = {
+                        ...storeInfo,
+                        customPortalUrl: '',
+                      };
+                      await onUpdateStoreInfo(updated);
+                      triggerToast();
+                    }}
+                    className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-medium transition cursor-pointer"
+                  >
+                    Reset to Default Portal
+                  </button>
+                </div>
               </div>
             </div>
           )}
