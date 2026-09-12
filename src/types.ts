@@ -1,4 +1,4 @@
-export type PaymentMethod = 'Cash' | 'Card Lulu' | 'Card Mizah' | 'Binti Gym Transfer' | (string & {});
+export type PaymentMethod = 'Cash' | 'Card Lulu' | 'Card Mizah' | 'Binti Gym Transfer' | 'Pay Later' | (string & {});
 
 export interface PaymentTypeConfig {
   id: string; // Identifier or original key
@@ -57,6 +57,12 @@ export interface Order {
   date: string;
   time: string;
   paymentType: PaymentMethod;
+  paymentStatus?: 'paid' | 'unpaid';
+  settledAt?: string;
+  settledPaymentType?: PaymentMethod;
+  settledStaffName?: string;
+  cashTendered?: number;
+  changeDue?: number;
   subtotal: number;
   discountValue: number;
   totalAmount: number;
@@ -123,6 +129,12 @@ export interface PendingOrder {
   time: string;
   totalAmount: number;
   paymentType: PaymentMethod;
+  paymentStatus?: 'paid' | 'unpaid';
+  settledAt?: string;
+  settledPaymentType?: PaymentMethod;
+  settledStaffName?: string;
+  cashTendered?: number;
+  changeDue?: number;
   source: string;
   itemsSummary: string;
   staffName?: string;
@@ -183,6 +195,8 @@ export interface PeriodReport {
   cashSales: number;
   luluSales: number;
   mizahSales: number;
+  unpaidSales?: number;
+  unpaidCount?: number;
   totalExpenses: number;
   cashExpenses: number;
   luluExpenses: number;

@@ -3,7 +3,7 @@ import { Product, CartItem, Order, PaymentMethod, OrderItem, InventoryItem, Paym
 import { DEFAULT_PAYMENT_CONFIGS } from '../db/repositories/appSettingsRepo';
 import { AddonModal } from './AddonModal';
 import { StoreAddonsModal } from './StoreAddonsModal';
-import { Search, Plus, Save, Trash2, ShoppingBag, CreditCard, DollarSign, Calendar, Check, Pencil, X, Edit3, AlertTriangle, Boxes, Layers } from 'lucide-react';
+import { Search, Plus, Save, Trash2, ShoppingBag, CreditCard, DollarSign, Calendar, Check, Pencil, X, Edit3, AlertTriangle, Boxes, Layers, Clock, AlertCircle } from 'lucide-react';
 import { getBruneiDateString } from '../data/initialData';
 
 interface PosTerminalViewProps {
@@ -412,19 +412,21 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
     const receiptTime = new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' });
     const orderId = getOrCreateCheckoutId();
     const staffOnShift = currentUserName || activeShiftStaffName || (currentUserRole === 'admin' ? 'Admin' : 'Staff On Shift');
+    const isPayLater = paymentType === 'Pay Later';
 
     const newOrder: Order = {
       orderId,
       date: selectedDate,
       time: receiptTime,
       paymentType,
+      paymentStatus: isPayLater ? 'unpaid' : 'paid',
       subtotal,
       discountValue: discountAmount,
       totalAmount: finalTotal,
       items: orderItems,
       itemsSummary: orderItems.map(i => `${i.qty}x ${i.name}${i.addonString !== 'None' ? ` (+ ${i.addonString})` : ''}`).join(', '),
       staffName: staffOnShift,
-      customerName: customerNameInput.trim() || undefined,
+      customerName: customerNameInput.trim() || (isPayLater ? 'Open Tab' : undefined),
       fulfillmentStatus: 'pending',
     };
 
@@ -890,19 +892,37 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                 BND {finalTotal.toFixed(2)}
               </span>
             </div>
-            <button
-              onClick={() => {
-                if (cart.length === 0) {
-                  alert('Ticket is empty! Please add drinks first.');
-                  return;
-                }
-                setIsMobilePayModalOpen(true);
-              }}
-              className="w-full py-3.5 px-4 rounded-xl font-black text-sm bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition"
-            >
-              <CreditCard className="w-5 h-5" />
-              PAY NOW ({totalItemCount} {totalItemCount === 1 ? 'ITEM' : 'ITEMS'})
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (cart.length === 0) {
+                    alert('Ticket is empty! Please add drinks first.');
+                    return;
+                  }
+                  setPaymentType('Cash');
+                  setIsMobilePayModalOpen(true);
+                }}
+                className="flex-1 py-3.5 px-3 rounded-xl font-black text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition"
+              >
+                <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
+                PAY NOW ({totalItemCount})
+              </button>
+              <button
+                onClick={() => {
+                  if (cart.length === 0) {
+                    alert('Ticket is empty! Please add drinks first.');
+                    return;
+                  }
+                  setPaymentType('Pay Later');
+                  setIsMobilePayModalOpen(true);
+                }}
+                title="Open a tab: Send drinks to kitchen/bar now and collect payment later"
+                className="py-3.5 px-3.5 rounded-xl font-extrabold text-xs bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition shrink-0"
+              >
+                <Clock className="w-4 h-4 text-amber-400" />
+                <span>PAY LATER</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1449,22 +1469,37 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-slate-400 pt-1">
-                <span className="font-semibold text-slate-300">Cash Handed</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={cashTendered}
-                  onChange={(e) => setCashTendered(e.target.value)}
-                  placeholder="$0.00"
-                  className="w-28 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-right font-mono text-slate-200 focus:outline-none focus:border-emerald-500 font-bold"
-                />
-              </div>
+              {/* Pay Later Information Banner */}
+              {paymentType === 'Pay Later' ? (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-black text-amber-400">
+                    <Clock className="w-4 h-4 shrink-0" />
+                    <span>OPEN TAB / PAY LATER</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Drinks will be immediately queued in <strong>Customer Orders</strong> for preparation. No payment is collected now; tab can be settled later when the customer is ready.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-slate-400 pt-1">
+                    <span className="font-semibold text-slate-300">Cash Handed</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={cashTendered}
+                      onChange={(e) => setCashTendered(e.target.value)}
+                      placeholder="$0.00"
+                      className="w-28 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-right font-mono text-slate-200 focus:outline-none focus:border-emerald-500 font-bold"
+                    />
+                  </div>
 
-              <div className="flex items-center justify-between font-bold text-sky-400 pt-1 border-t border-slate-900">
-                <span>Change Due</span>
-                <span className="font-mono text-base font-extrabold">BND {changeDue.toFixed(2)}</span>
-              </div>
+                  <div className="flex items-center justify-between font-bold text-sky-400 pt-1 border-t border-slate-900">
+                    <span>Change Due</span>
+                    <span className="font-mono text-base font-extrabold">BND {changeDue.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Payment Method Selector */}
@@ -1475,19 +1510,25 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 {enabledPaymentConfigs.map((config) => {
                   const isSelected = paymentType === config.name || paymentType === config.id;
+                  const isPayLaterOption = config.id === 'Pay Later' || config.name === 'Pay Later';
                   return (
                     <button
                       key={config.id}
                       type="button"
                       onClick={() => setPaymentType(config.name as PaymentMethod)}
-                      className={`py-2.5 px-2 text-xs font-extrabold rounded-xl border transition text-center select-none cursor-pointer truncate
+                      className={`py-2.5 px-2 text-xs font-extrabold rounded-xl border transition text-center select-none cursor-pointer truncate flex items-center justify-center gap-1.5
                         ${isSelected
-                          ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10 scale-[1.02]'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          ? isPayLaterOption
+                            ? 'bg-amber-500 border-amber-400 text-slate-950 shadow-md shadow-amber-500/20 scale-[1.02]'
+                            : 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10 scale-[1.02]'
+                          : isPayLaterOption
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                         }
                       `}
                     >
-                      {config.name}
+                      {isPayLaterOption && <Clock className="w-3.5 h-3.5" />}
+                      <span>{config.name}</span>
                     </button>
                   );
                 })}
@@ -1503,20 +1544,27 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
                 Cancel
               </button>
               <button
-                onClick={handleChargeOrder}
+                onClick={() => handleChargeOrder()}
                 className={`flex-2 py-3 px-4 rounded-xl font-black text-xs transition shadow-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95
                   ${chargedSuccess
                     ? 'bg-emerald-600 text-white'
-                    : currentUserRole === 'staff'
+                    : paymentType === 'Pay Later'
                       ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
-                      : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
+                      : currentUserRole === 'staff'
+                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                        : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
                   }
                 `}
               >
                 {chargedSuccess ? (
                   <>
                     <Check className="w-4 h-4 stroke-[3]" />
-                    {currentUserRole === 'staff' ? 'SENT FOR APPROVAL!' : 'CHARGED!'}
+                    {paymentType === 'Pay Later' ? 'TAB OPENED!' : currentUserRole === 'staff' ? 'SENT FOR APPROVAL!' : 'CHARGED!'}
+                  </>
+                ) : paymentType === 'Pay Later' ? (
+                  <>
+                    <Clock className="w-4 h-4" />
+                    <span>{currentUserRole === 'staff' ? 'SUBMIT TAB FOR APPROVAL' : 'CONFIRM OPEN TAB'}</span>
                   </>
                 ) : currentUserRole === 'staff' ? (
                   'SUBMIT FOR APPROVAL'

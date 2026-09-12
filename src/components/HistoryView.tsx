@@ -126,22 +126,36 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
                     {/* Payment Type */}
                     <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
-                      <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-bold bg-slate-800 text-slate-200 border border-slate-700 inline-block">
-                        {order.paymentType}
-                      </span>
+                      {order.paymentStatus === 'unpaid' ? (
+                        <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                          <span>{order.paymentType} (Open Tab)</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-bold bg-slate-800 text-slate-200 border border-slate-700 inline-block">
+                          {order.paymentType}
+                        </span>
+                      )}
                     </td>
 
                     {/* Payment Received (when approved into cash/accounts) */}
                     <td className="px-2.5 sm:px-4 py-2.5 sm:py-3">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5 font-mono text-emerald-400 font-bold text-[11px] sm:text-xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                          <span>{order.paymentReceivedDate || order.date}</span>
+                      {order.paymentStatus === 'unpaid' ? (
+                        <div className="flex items-center gap-1.5 font-mono text-amber-400 font-bold text-[11px] sm:text-xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                          <span>Pending Settle</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-medium pl-3">
-                          {formatTimeDisplay(order.paymentReceivedTime || order.time)}
-                        </span>
-                      </div>
+                      ) : (
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 font-mono text-emerald-400 font-bold text-[11px] sm:text-xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                            <span>{order.paymentReceivedDate || order.date}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-medium pl-3">
+                            {formatTimeDisplay(order.paymentReceivedTime || order.time)}
+                          </span>
+                        </div>
+                      )}
                     </td>
 
                     {/* Price */}
@@ -182,16 +196,29 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-mono font-extrabold text-emerald-400 text-base">{selectedOrder.orderId}</h3>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                      {selectedOrder.paymentType}
-                    </span>
+                    {selectedOrder.paymentStatus === 'unpaid' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        {selectedOrder.paymentType} • UNPAID TAB
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                        {selectedOrder.paymentType}
+                      </span>
+                    )}
                   </div>
                   <div className="space-y-0.5 mt-0.5">
                     <p className="text-[11px] text-slate-400">Placed: {selectedOrder.date} at {formatTimeDisplay(selectedOrder.time)}</p>
-                    <p className="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                      Payment Received: {selectedOrder.paymentReceivedDate || selectedOrder.date} at {formatTimeDisplay(selectedOrder.paymentReceivedTime || selectedOrder.time)}
-                    </p>
+                    {selectedOrder.paymentStatus === 'unpaid' ? (
+                      <p className="text-[11px] text-amber-400 font-bold flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                        Open Tab — Pending Payment Settlement
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        Payment Received: {selectedOrder.paymentReceivedDate || selectedOrder.date} at {formatTimeDisplay(selectedOrder.paymentReceivedTime || selectedOrder.time)}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -217,9 +244,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   <div className="font-bold text-xs text-slate-200 truncate">{selectedOrder.paymentType}</div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-[10px] uppercase font-bold text-slate-500">Payment Received</div>
-                  <div className="font-mono font-bold text-[11px] text-emerald-400 truncate">
-                    {formatTimeDisplay(selectedOrder.paymentReceivedTime || selectedOrder.time)}
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Payment Status</div>
+                  <div className={`font-mono font-bold text-[11px] truncate ${selectedOrder.paymentStatus === 'unpaid' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {selectedOrder.paymentStatus === 'unpaid'
+                      ? 'UNPAID TAB'
+                      : formatTimeDisplay(selectedOrder.paymentReceivedTime || selectedOrder.time)}
                   </div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">

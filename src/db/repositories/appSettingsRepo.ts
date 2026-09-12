@@ -33,6 +33,7 @@ export const DEFAULT_PAYMENT_CONFIGS: PaymentTypeConfig[] = [
   { id: 'Card Lulu', name: 'Card Lulu', enabled: true },
   { id: 'Card Mizah', name: 'Card Mizah', enabled: true },
   { id: 'Binti Gym Transfer', name: 'Binti Gym Transfer', enabled: true },
+  { id: 'Pay Later', name: 'Pay Later', enabled: true },
 ];
 
 export const ALL_APP_TABS: TabConfig[] = [

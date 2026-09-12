@@ -121,12 +121,22 @@ export function calculatePeriodReport(orders: Order[], expenses: Expense[], date
   let cashSales = 0;
   let luluSales = 0;
   let mizahSales = 0;
+  let unpaidSales = 0;
+  let unpaidCount = 0;
 
   filteredOrders.forEach(o => {
     const amt = o.totalAmount || 0;
-    if (o.paymentType === 'Cash' || o.paymentType === 'Binti Gym Transfer') cashSales += amt;
-    else if (o.paymentType === 'Card Lulu') luluSales += amt;
-    else if (o.paymentType === 'Card Mizah') mizahSales += amt;
+    const isUnpaid = o.paymentStatus === 'unpaid' || o.paymentType === 'Pay Later';
+    if (isUnpaid) {
+      unpaidSales += amt;
+      unpaidCount++;
+    } else if (o.paymentType === 'Cash' || o.paymentType === 'Binti Gym Transfer') {
+      cashSales += amt;
+    } else if (o.paymentType === 'Card Lulu') {
+      luluSales += amt;
+    } else if (o.paymentType === 'Card Mizah') {
+      mizahSales += amt;
+    }
   });
 
   let cashExpenses = 0;
@@ -149,6 +159,8 @@ export function calculatePeriodReport(orders: Order[], expenses: Expense[], date
     cashSales,
     luluSales,
     mizahSales,
+    unpaidSales,
+    unpaidCount,
     totalExpenses,
     cashExpenses,
     luluExpenses,
@@ -168,6 +180,8 @@ export function calculateAccountBalances(orders: Order[], expenses: Expense[], m
 
   let cashIn = 0, luluIn = 0, mizahIn = 0;
   targetOrders.forEach(o => {
+    const isUnpaid = o.paymentStatus === 'unpaid' || o.paymentType === 'Pay Later';
+    if (isUnpaid) return;
     const amt = o.totalAmount || 0;
     if (o.paymentType === 'Cash' || o.paymentType === 'Binti Gym Transfer') cashIn += amt;
     else if (o.paymentType === 'Card Lulu') luluIn += amt;
@@ -196,6 +210,8 @@ export function calculateDailyAccountBalances(orders: Order[], expenses: Expense
 
   let cashIn = 0, luluIn = 0, mizahIn = 0;
   dayOrders.forEach(o => {
+    const isUnpaid = o.paymentStatus === 'unpaid' || o.paymentType === 'Pay Later';
+    if (isUnpaid) return;
     const amt = o.totalAmount || 0;
     if (o.paymentType === 'Cash' || o.paymentType === 'Binti Gym Transfer') cashIn += amt;
     else if (o.paymentType === 'Card Lulu') luluIn += amt;
@@ -223,6 +239,8 @@ export function calculateDailyAccountBalances(orders: Order[], expenses: Expense
 
   let cumCashIn = 0, cumLuluIn = 0, cumMizahIn = 0;
   asOfOrders.forEach(o => {
+    const isUnpaid = o.paymentStatus === 'unpaid' || o.paymentType === 'Pay Later';
+    if (isUnpaid) return;
     const amt = o.totalAmount || 0;
     if (o.paymentType === 'Cash' || o.paymentType === 'Binti Gym Transfer') cumCashIn += amt;
     else if (o.paymentType === 'Card Lulu') cumLuluIn += amt;

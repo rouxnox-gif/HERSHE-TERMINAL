@@ -8,7 +8,8 @@ import {
   UserSession,
   StaffShift,
   InventoryItem,
-  InventoryLog
+  InventoryLog,
+  PaymentMethod
 } from './types';
 import { usePOSData } from './hooks/usePOSData';
 import { initializeDatabaseAndMigrate } from './services/migrationService';
@@ -49,7 +50,7 @@ import { PendingApprovalsView } from './components/PendingApprovalsView';
 import { ReceiptsHistoryView } from './components/ReceiptsHistoryView';
 import { PartnershipDistributionView } from './components/PartnershipDistributionView';
 import { CustomerOrdersView } from './components/CustomerOrdersView';
-import { updateOrderFulfillmentStatus } from './services/posService';
+import { updateOrderFulfillmentStatus, settleOrderPayment } from './services/posService';
 import { getBruneiDateString } from './data/initialData';
 import { ReceiptModal } from './components/ReceiptModal';
 import { StaffCheckInModal } from './components/StaffCheckInModal';
@@ -253,9 +254,12 @@ export default function App() {
         time: newOrder.time,
         totalAmount: newOrder.totalAmount,
         paymentType: newOrder.paymentType,
+        paymentStatus: newOrder.paymentStatus || (newOrder.paymentType === 'Pay Later' ? 'unpaid' : 'paid'),
         source: `Staff (${resolvedStaffName})`,
         staffName: resolvedStaffName,
         customerName: newOrder.customerName,
+        customerPhone: newOrder.customerPhone,
+        customerNotes: newOrder.customerNotes,
         fulfillmentStatus: newOrder.fulfillmentStatus || 'pending',
         inventoryDeducted: true,
         itemsSummary: newOrder.itemsSummary || newOrder.items.map(i => `${i.qty}x ${i.name}`).join(', '),
@@ -465,6 +469,23 @@ export default function App() {
     await updateOrderFulfillmentStatus(orderId, nextStatus);
   };
 
+  // Settle open tab / unpaid order payment
+  const handleSettlePayment = async (
+    orderId: string,
+    settledPaymentType: PaymentMethod,
+    amountPaid?: number,
+    changeGiven?: number
+  ) => {
+    const staff = currentUser?.name || 'Staff';
+    await settleOrderPayment({
+      orderId,
+      paymentType: settledPaymentType,
+      staffName: staff,
+      cashTendered: amountPaid,
+      changeDue: changeGiven,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
       {/* Staff Check-In Screen Overlay when not checked in */}
@@ -516,6 +537,8 @@ export default function App() {
               orders={orders}
               pendingOrders={pendingOrders}
               onToggleFulfillment={handleToggleFulfillment}
+              onSettlePayment={handleSettlePayment}
+              paymentConfigs={paymentConfigs}
               storeInfo={storeInfo}
             />
           )}

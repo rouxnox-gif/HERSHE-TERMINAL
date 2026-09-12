@@ -47,16 +47,19 @@ export async function createCompletedSale(params: {
     : params.order.paymentType;
 
   const resolvedStaffName = params.staffName || params.order.staffName || 'Admin';
+  const isPayLater = finalPaymentType === 'Pay Later' || params.order.paymentStatus === 'unpaid';
+  const paymentStatus: 'paid' | 'unpaid' = isPayLater ? 'unpaid' : 'paid';
 
   const orderRecord: Order = {
     ...params.order,
     id,
     orderId,
     paymentType: finalPaymentType,
+    paymentStatus,
     staffName: resolvedStaffName,
-    paymentReceivedDate: approveDate,
-    paymentReceivedTime: approveTime,
-    paymentReceivedAt: params.order.paymentReceivedAt || `${approveDate} ${approveTime}`,
+    paymentReceivedDate: isPayLater ? undefined : approveDate,
+    paymentReceivedTime: isPayLater ? undefined : approveTime,
+    paymentReceivedAt: isPayLater ? undefined : (params.order.paymentReceivedAt || `${approveDate} ${approveTime}`),
     createdAt: params.order.createdAt || nowIso,
     updatedAt: nowIso,
     deviceId,
@@ -201,10 +204,14 @@ export async function createPendingOrder(params: {
     (params.staffName && params.staffName.toLowerCase().startsWith('customer')) ||
     (params.pendingOrder.staffName && params.pendingOrder.staffName.toLowerCase().startsWith('customer'));
 
+  const isPayLater = params.pendingOrder.paymentType === 'Pay Later' || params.pendingOrder.paymentStatus === 'unpaid';
+  const paymentStatus: 'paid' | 'unpaid' = isPayLater ? 'unpaid' : 'paid';
+
   const pendingRecord: PendingOrder = {
     ...params.pendingOrder,
     id: params.pendingOrder.id || orderId,
     orderId,
+    paymentStatus,
     staffName: resolvedStaffName,
     inventoryDeducted: isCustomerOrder ? false : true,
     createdAt: params.pendingOrder.createdAt || nowIso,
@@ -465,6 +472,10 @@ export async function approvePendingOrder(pending: PendingOrder): Promise<Order>
       customerNotes: pending.customerNotes,
       fulfillmentStatus: pending.fulfillmentStatus || 'pending',
       fulfilledAt: pending.fulfilledAt,
+      paymentStatus: pending.paymentStatus || (approvedPaymentType === 'Pay Later' ? 'unpaid' : 'paid'),
+      settledAt: pending.settledAt,
+      settledPaymentType: pending.settledPaymentType,
+      settledStaffName: pending.settledStaffName,
       paymentReceivedDate: approveDate,
       paymentReceivedTime: approveTime,
       paymentReceivedAt: `${approveDate} ${approveTime}`,
@@ -1056,5 +1067,81 @@ export async function updateOrderFulfillmentStatus(
   });
 
   // Trigger real-time sync with Firestore
+  triggerSync();
+}
+
+/**
+ * Settles an unpaid / open tab order (Pay Later).
+ * Updates paymentStatus to 'paid', assigns the settled payment method,
+ * calculates cash tendered and change due if applicable, and syncs across devices.
+ */
+export async function settleOrderPayment(params: {
+  orderId: string;
+  paymentType: PaymentMethod;
+  staffName?: string;
+  cashTendered?: number;
+  changeDue?: number;
+}): Promise<void> {
+  const deviceId = await getOrCreateDeviceId();
+  const nowIso = new Date().toISOString();
+  const today = getBruneiDateString();
+  const timeStr = getBruneiTimeString();
+
+  await db.transaction('rw', [db.orders, db.pendingOrders, db.syncQueue], async () => {
+    // 1. Check orders table (completed sales)
+    const existingOrder = await db.orders.get(params.orderId);
+    if (existingOrder) {
+      const updated: Order = {
+        ...existingOrder,
+        paymentType: params.paymentType,
+        paymentStatus: 'paid',
+        settledAt: nowIso,
+        settledPaymentType: params.paymentType,
+        settledStaffName: params.staffName,
+        paymentReceivedDate: existingOrder.paymentReceivedDate || today,
+        paymentReceivedTime: existingOrder.paymentReceivedTime || timeStr,
+        paymentReceivedAt: existingOrder.paymentReceivedAt || `${today} ${timeStr}`,
+        cashTendered: params.cashTendered,
+        changeDue: params.changeDue,
+        updatedAt: nowIso,
+      };
+      await db.orders.put(updated);
+      await enqueueSyncItem({
+        entityType: 'order',
+        entityId: params.orderId,
+        operation: 'UPDATE',
+        payload: updated,
+        deviceId,
+        operationId: `sync-order-settle-${params.orderId}-${Date.now()}`,
+      });
+    }
+
+    // 2. Check pending orders table
+    const existingPending = await db.pendingOrders.get(params.orderId);
+    if (existingPending) {
+      const updatedPending: PendingOrder = {
+        ...existingPending,
+        paymentType: params.paymentType,
+        paymentStatus: 'paid',
+        settledAt: nowIso,
+        settledPaymentType: params.paymentType,
+        settledStaffName: params.staffName,
+        cashTendered: params.cashTendered,
+        changeDue: params.changeDue,
+        updatedAt: nowIso,
+      };
+      await db.pendingOrders.put(updatedPending);
+      await enqueueSyncItem({
+        entityType: 'pendingOrder',
+        entityId: params.orderId,
+        operation: 'UPDATE',
+        payload: updatedPending,
+        deviceId,
+        operationId: `sync-pending-settle-${params.orderId}-${Date.now()}`,
+      });
+    }
+  });
+
+  // Trigger Firestore sync
   triggerSync();
 }
