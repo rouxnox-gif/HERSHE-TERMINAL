@@ -68,6 +68,7 @@ try {
 }
 
 export const db = firestoreInstance;
+export const firestoreDb = firestoreInstance;
 
 export enum OperationType {
   CREATE = 'create',

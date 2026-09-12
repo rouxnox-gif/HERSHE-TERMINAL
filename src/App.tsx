@@ -635,6 +635,8 @@ export default function App() {
         isOpen={googleSheetsOpen}
         onClose={() => setGoogleSheetsOpen(false)}
         data={appData}
+        storePin={activePinCode}
+        storeName={storeInfo?.storeName}
       />
 
       {/* 4-Digit Store PIN Gateway & Real-Time Sync Modal */}

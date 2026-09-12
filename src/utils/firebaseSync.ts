@@ -431,6 +431,21 @@ export async function connectExistingStorePin(pinCode: string): Promise<StorageD
           updatedAt: nowIso,
         });
       }
+      if (sData?.googleSpreadsheetId && typeof sData.googleSpreadsheetId === 'string' && sData.googleSpreadsheetId.trim()) {
+        const cleanSheetId = sData.googleSpreadsheetId.trim();
+        localStorage.setItem(`hershe_pos_google_spreadsheet_id_pin_${pin}`, cleanSheetId);
+        localStorage.setItem(`hershe_pos_google_spreadsheet_id_store_${targetStoreId}`, cleanSheetId);
+        await localDb.appSettings.put({
+          key: `hershe_pos_google_spreadsheet_id_pin_${pin}`,
+          value: cleanSheetId,
+          updatedAt: nowIso,
+        });
+        await localDb.appSettings.put({
+          key: `hershe_pos_google_spreadsheet_id_store_${targetStoreId}`,
+          value: cleanSheetId,
+          updatedAt: nowIso,
+        });
+      }
     }
   } catch (mErr) {
     console.warn('[FirebaseSync] Failed reading target store metadata:', mErr);

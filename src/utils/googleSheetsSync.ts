@@ -1,10 +1,24 @@
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth, firestoreDb } from '../lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../db/db';
+import { getStoreId } from '../db/repositories/appSettingsRepo';
+import { getStoredPinCode } from './firebaseSync';
 import { StorageData, calculatePeriodReport } from './storage';
 
-const SPREADSHEET_ID_KEY = 'hershe_pos_google_spreadsheet_id';
+// Storage key prefixes for store PIN and store ID isolation
+const SPREADSHEET_ID_PIN_PREFIX = 'hershe_pos_google_spreadsheet_id_pin_';
+const SPREADSHEET_ID_STORE_PREFIX = 'hershe_pos_google_spreadsheet_id_store_';
+const LEGACY_GLOBAL_KEY = 'hershe_pos_google_spreadsheet_id';
 
 let cachedAccessToken: string | null = null;
+
+// Remove legacy unpartitioned key on load to prevent Store A and Store B cross-contamination
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem(LEGACY_GLOBAL_KEY);
+  } catch {}
+}
 
 /**
  * Perform Google Auth Sign-in to get access token for Google Sheets API
@@ -29,22 +43,213 @@ export async function authenticateGoogleSheets(): Promise<string> {
   return cachedAccessToken;
 }
 
-export function getSavedSpreadsheetId(): string | null {
-  return localStorage.getItem(SPREADSHEET_ID_KEY);
-}
+/**
+ * Resolves the saved spreadsheet ID for a specific store PIN and store ID.
+ * Looks up local storage (PIN-specific), IndexedDB, and Cloud Firestore (/stores/{storeId}/meta/settings).
+ * Guarantees Store A never shares or accesses Store B's Google Sheet even under the same Google account.
+ */
+export async function getStoreSavedSpreadsheetId(
+  pin?: string | null,
+  storeId?: string | null
+): Promise<string | null> {
+  const activePin = (pin || getStoredPinCode())?.trim();
+  let currentStoreId = storeId?.trim();
+  if (!currentStoreId && typeof window !== 'undefined') {
+    try {
+      currentStoreId = await getStoreId();
+    } catch {}
+  }
 
-export function saveSpreadsheetId(id: string): void {
-  localStorage.setItem(SPREADSHEET_ID_KEY, id);
-}
+  // 1. Check PIN-specific local storage
+  if (activePin) {
+    const pinVal = localStorage.getItem(`${SPREADSHEET_ID_PIN_PREFIX}${activePin}`);
+    if (pinVal && pinVal.trim()) return pinVal.trim();
+  }
 
-export function clearSavedSpreadsheetId(): void {
-  localStorage.removeItem(SPREADSHEET_ID_KEY);
+  // 2. Check storeId-specific local storage
+  if (currentStoreId) {
+    const storeVal = localStorage.getItem(`${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`);
+    if (storeVal && storeVal.trim()) return storeVal.trim();
+  }
+
+  // 3. Check IndexedDB appSettings table
+  try {
+    if (activePin) {
+      const pinDb = await db.appSettings.get(`${SPREADSHEET_ID_PIN_PREFIX}${activePin}`);
+      if (pinDb?.value && typeof pinDb.value === 'string' && pinDb.value.trim()) {
+        return pinDb.value.trim();
+      }
+    }
+    if (currentStoreId) {
+      const storeDb = await db.appSettings.get(`${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`);
+      if (storeDb?.value && typeof storeDb.value === 'string' && storeDb.value.trim()) {
+        return storeDb.value.trim();
+      }
+    }
+  } catch (dbErr) {
+    console.warn('[GoogleSheetsSync] IndexedDB lookup error:', dbErr);
+  }
+
+  // 4. Check Cloud Firestore /stores/{storeId}/meta/settings
+  try {
+    if (currentStoreId && firestoreDb) {
+      const metaRef = doc(firestoreDb, 'stores', currentStoreId, 'meta', 'settings');
+      const snap = await getDoc(metaRef).catch(() => null);
+      if (snap && snap.exists()) {
+        const sData = snap.data();
+        if (sData?.googleSpreadsheetId && typeof sData.googleSpreadsheetId === 'string' && sData.googleSpreadsheetId.trim()) {
+          const sheetId = sData.googleSpreadsheetId.trim();
+          // Cache locally for this store PIN and ID
+          if (activePin) {
+            localStorage.setItem(`${SPREADSHEET_ID_PIN_PREFIX}${activePin}`, sheetId);
+          }
+          localStorage.setItem(`${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`, sheetId);
+          return sheetId;
+        }
+      }
+    }
+  } catch (cErr) {
+    console.warn('[GoogleSheetsSync] Error fetching cloud spreadsheet ID:', cErr);
+  }
+
+  return null;
 }
 
 /**
- * Creates a brand new Google Spreadsheet titled "Hershe POS - Store Data Sync"
+ * Synchronous helper to get currently cached spreadsheet ID for a store PIN
  */
-async function createNewSpreadsheet(token: string): Promise<string> {
+export function getSavedSpreadsheetId(pin?: string | null, storeId?: string | null): string | null {
+  const activePin = (pin || getStoredPinCode())?.trim();
+  const currentStoreId = storeId?.trim() || (typeof window !== 'undefined' ? localStorage.getItem('hershe_pos_store_id') : null);
+
+  if (activePin) {
+    const val = localStorage.getItem(`${SPREADSHEET_ID_PIN_PREFIX}${activePin}`);
+    if (val && val.trim()) return val.trim();
+  }
+  if (currentStoreId) {
+    const val = localStorage.getItem(`${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`);
+    if (val && val.trim()) return val.trim();
+  }
+  return null;
+}
+
+/**
+ * Saves spreadsheet ID partitioned specifically to this store PIN and store ID
+ */
+export async function saveSpreadsheetId(
+  id: string,
+  pin?: string | null,
+  storeId?: string | null,
+  storeName?: string
+): Promise<void> {
+  const cleanId = id.trim();
+  if (!cleanId) return;
+
+  const activePin = (pin || getStoredPinCode())?.trim();
+  let currentStoreId = storeId?.trim();
+  if (!currentStoreId && typeof window !== 'undefined') {
+    try {
+      currentStoreId = await getStoreId();
+    } catch {}
+  }
+
+  const nowIso = new Date().toISOString();
+
+  if (activePin) {
+    localStorage.setItem(`${SPREADSHEET_ID_PIN_PREFIX}${activePin}`, cleanId);
+    await db.appSettings.put({
+      key: `${SPREADSHEET_ID_PIN_PREFIX}${activePin}`,
+      value: cleanId,
+      updatedAt: nowIso,
+    }).catch(() => {});
+  }
+
+  if (currentStoreId) {
+    localStorage.setItem(`${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`, cleanId);
+    await db.appSettings.put({
+      key: `${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`,
+      value: cleanId,
+      updatedAt: nowIso,
+    }).catch(() => {});
+
+    // Save to Firestore under this store's meta/settings so all devices on Store PIN share this sheet,
+    // while keeping it strictly segregated from other stores.
+    try {
+      if (firestoreDb) {
+        const settingsRef = doc(firestoreDb, 'stores', currentStoreId, 'meta', 'settings');
+        await setDoc(settingsRef, {
+          googleSpreadsheetId: cleanId,
+          googleSpreadsheetUrl: `https://docs.google.com/spreadsheets/d/${cleanId}`,
+          googleSpreadsheetUpdatedAt: nowIso,
+          storePin: activePin || '',
+          storeName: storeName || '',
+        }, { merge: true });
+      }
+    } catch (err) {
+      console.warn('[GoogleSheetsSync] Could not save spreadsheet ID to cloud:', err);
+    }
+  }
+}
+
+/**
+ * Unlinks the Google Sheet ID for this specific store PIN / store ID only
+ */
+export async function clearSavedSpreadsheetId(
+  pin?: string | null,
+  storeId?: string | null
+): Promise<void> {
+  const activePin = (pin || getStoredPinCode())?.trim();
+  let currentStoreId = storeId?.trim();
+  if (!currentStoreId && typeof window !== 'undefined') {
+    try {
+      currentStoreId = await getStoreId();
+    } catch {}
+  }
+
+  if (activePin) {
+    localStorage.removeItem(`${SPREADSHEET_ID_PIN_PREFIX}${activePin}`);
+    await db.appSettings.delete(`${SPREADSHEET_ID_PIN_PREFIX}${activePin}`).catch(() => {});
+  }
+
+  if (currentStoreId) {
+    localStorage.removeItem(`${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`);
+    await db.appSettings.delete(`${SPREADSHEET_ID_STORE_PREFIX}${currentStoreId}`).catch(() => {});
+
+    try {
+      if (firestoreDb) {
+        const settingsRef = doc(firestoreDb, 'stores', currentStoreId, 'meta', 'settings');
+        await setDoc(settingsRef, {
+          googleSpreadsheetId: '',
+          googleSpreadsheetUrl: '',
+          googleSpreadsheetUpdatedAt: new Date().toISOString(),
+        }, { merge: true });
+      }
+    } catch (err) {
+      console.warn('[GoogleSheetsSync] Could not clear spreadsheet ID in cloud:', err);
+    }
+  }
+}
+
+/**
+ * Creates a brand new Google Spreadsheet titled specifically for this store PIN & store name
+ */
+async function createNewSpreadsheet(
+  token: string,
+  options?: { storePin?: string | null; storeName?: string; storeId?: string | null }
+): Promise<string> {
+  const storePin = options?.storePin;
+  const storeName = options?.storeName;
+  const storeId = options?.storeId;
+
+  let sheetTitle = 'Hershe POS - Store Data Sync';
+  if (storeName && storePin) {
+    sheetTitle = `Hershe POS - ${storeName} (PIN: ${storePin}) - Data Sync`;
+  } else if (storePin) {
+    sheetTitle = `Hershe POS - Store PIN ${storePin} - Data Sync`;
+  } else if (storeName) {
+    sheetTitle = `Hershe POS - ${storeName} - Data Sync`;
+  }
+
   const response = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
     headers: {
@@ -53,7 +258,7 @@ async function createNewSpreadsheet(token: string): Promise<string> {
     },
     body: JSON.stringify({
       properties: {
-        title: 'Hershe POS - Store Data Sync',
+        title: sheetTitle,
       },
       sheets: [
         { properties: { title: 'Sales & Orders' } },
@@ -73,7 +278,7 @@ async function createNewSpreadsheet(token: string): Promise<string> {
 
   const data = await response.json();
   const spreadsheetId = data.spreadsheetId;
-  saveSpreadsheetId(spreadsheetId);
+  await saveSpreadsheetId(spreadsheetId, storePin, storeId, storeName);
   return spreadsheetId;
 }
 
@@ -117,20 +322,31 @@ async function ensureSheetTabsExist(spreadsheetId: string, token: string): Promi
 
 /**
  * Syncs / Exports orders, expenses, shift logs, monthly balances, and summary to Google Sheets
+ * strictly isolated for the provided store PIN and store ID.
  */
 export async function pushDataToGoogleSheets(
   data: StorageData,
-  existingSpreadsheetId?: string
+  existingSpreadsheetId?: string,
+  options?: {
+    storePin?: string | null;
+    storeName?: string;
+    storeId?: string | null;
+  }
 ): Promise<{ spreadsheetId: string; url: string }> {
   const token = await authenticateGoogleSheets();
+  const storePin = options?.storePin;
+  const storeName = options?.storeName;
+  const storeId = options?.storeId;
 
-  let spreadsheetId = existingSpreadsheetId || getSavedSpreadsheetId();
+  let spreadsheetId = existingSpreadsheetId?.trim() || await getStoreSavedSpreadsheetId(storePin, storeId);
 
   if (!spreadsheetId) {
-    spreadsheetId = await createNewSpreadsheet(token);
+    spreadsheetId = await createNewSpreadsheet(token, { storePin, storeName, storeId });
   } else {
     // Check and create missing sheet tabs (e.g., Monthly Balances) if upgrading existing spreadsheet
     await ensureSheetTabsExist(spreadsheetId, token);
+    // Ensure this spreadsheet is saved explicitly for this store PIN
+    await saveSpreadsheetId(spreadsheetId, storePin, storeId, storeName);
   }
 
   // Format Orders rows (including Staff On Shift)
@@ -383,6 +599,8 @@ export async function pushDataToGoogleSheets(
 
   const summaryHeaders = ['Metric', 'Value'];
   const summaryRows = [
+    ['Store Name', storeName || 'HERSHE POS Store'],
+    ['Store PIN', storePin ? `#${storePin}` : 'N/A'],
     ['Total Completed Sales', (data.orders || []).length],
     ['Total Gross Sales (BND)', totalSalesRevenue.toFixed(2)],
     ['Total Expenses (BND)', totalExpensesAmount.toFixed(2)],

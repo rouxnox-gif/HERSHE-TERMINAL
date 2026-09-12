@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StorageData } from '../utils/storage';
 import {
   pushDataToGoogleSheets,
-  getSavedSpreadsheetId,
+  getStoreSavedSpreadsheetId,
   saveSpreadsheetId,
   clearSavedSpreadsheetId,
 } from '../utils/googleSheetsSync';
@@ -16,35 +16,58 @@ import {
   RefreshCw,
   Sparkles,
   Database,
-  Calendar,
-  Receipt,
-  Users
+  Store,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface GoogleSheetsSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: StorageData;
+  storePin?: string | null;
+  storeName?: string;
+  storeId?: string | null;
 }
 
 export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
   isOpen,
   onClose,
   data,
+  storePin,
+  storeName,
+  storeId,
 }) => {
   const [spreadsheetId, setSpreadsheetId] = useState<string>('');
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [successUrl, setSuccessUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [confirmSync, setConfirmSync] = useState<boolean>(false);
+  const [loadingSheetId, setLoadingSheetId] = useState<boolean>(true);
 
   useEffect(() => {
-    const saved = getSavedSpreadsheetId();
-    if (saved) {
-      setSpreadsheetId(saved);
-      setSuccessUrl(`https://docs.google.com/spreadsheets/d/${saved}`);
+    let isMounted = true;
+    if (isOpen) {
+      setLoadingSheetId(true);
+      setErrorMessage(null);
+      getStoreSavedSpreadsheetId(storePin, storeId)
+        .then((saved) => {
+          if (!isMounted) return;
+          if (saved) {
+            setSpreadsheetId(saved);
+            setSuccessUrl(`https://docs.google.com/spreadsheets/d/${saved}`);
+          } else {
+            setSpreadsheetId('');
+            setSuccessUrl(null);
+          }
+        })
+        .finally(() => {
+          if (isMounted) setLoadingSheetId(false);
+        });
     }
-  }, [isOpen]);
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, storePin, storeId]);
 
   if (!isOpen) return null;
 
@@ -53,9 +76,13 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     setErrorMessage(null);
     try {
       if (spreadsheetId.trim()) {
-        saveSpreadsheetId(spreadsheetId.trim());
+        await saveSpreadsheetId(spreadsheetId.trim(), storePin, storeId, storeName);
       }
-      const result = await pushDataToGoogleSheets(data, spreadsheetId.trim() || undefined);
+      const result = await pushDataToGoogleSheets(
+        data,
+        spreadsheetId.trim() || undefined,
+        { storePin, storeName, storeId }
+      );
       setSpreadsheetId(result.spreadsheetId);
       setSuccessUrl(result.url);
       setConfirmSync(false);
@@ -67,12 +94,18 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     }
   };
 
-  const handleUnlink = () => {
-    clearSavedSpreadsheetId();
+  const handleUnlink = async () => {
+    await clearSavedSpreadsheetId(storePin, storeId);
     setSpreadsheetId('');
     setSuccessUrl(null);
     setErrorMessage(null);
   };
+
+  const generatedSheetTitle = storeName && storePin
+    ? `Hershe POS - ${storeName} (PIN: ${storePin}) - Data Sync`
+    : storePin
+      ? `Hershe POS - Store PIN ${storePin} - Data Sync`
+      : 'Hershe POS - Store Data Sync';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
@@ -101,6 +134,28 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Store PIN & Partition Indicator */}
+        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+              <Store className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-white font-bold block">{storeName || 'HERSHE Store'}</span>
+              <span className="text-[11px] text-slate-400">
+                Store PIN: <strong className="text-emerald-400 font-mono font-extrabold">{storePin ? `#${storePin}` : 'Default Store'}</strong>
+              </span>
+            </div>
+          </div>
+          <div className="text-right">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              <ShieldCheck className="w-3 h-3" />
+              Store-Isolated Sheet
+            </span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">Separate per PIN</span>
+          </div>
         </div>
 
         {/* Data Summary Grid */}
@@ -138,7 +193,12 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         </div>
 
         {/* Saved Spreadsheet Status or Input */}
-        {successUrl ? (
+        {loadingSheetId ? (
+          <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 text-center flex items-center justify-center gap-2 text-xs text-slate-400">
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+            <span>Loading store sheet configuration...</span>
+          </div>
+        ) : successUrl ? (
           <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 space-y-3">
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
@@ -146,6 +206,10 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                 <span className="font-bold text-sm text-white block">Connected to Google Sheet</span>
                 <span className="text-xs text-slate-300 font-mono break-all">ID: {spreadsheetId}</span>
               </div>
+            </div>
+
+            <div className="text-[11px] text-slate-300 leading-relaxed bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-500/20">
+              Linked exclusively to <strong className="text-emerald-300">Store PIN #{storePin || 'Default'}</strong>. Other store PINs will not share or overwrite this spreadsheet.
             </div>
 
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-500/20">
@@ -170,17 +234,17 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         ) : (
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-300 block">
-              Google Spreadsheet ID (Optional)
+              Google Spreadsheet ID for PIN #{storePin || 'Default'} (Optional)
             </label>
             <input
               type="text"
               value={spreadsheetId}
               onChange={(e) => setSpreadsheetId(e.target.value)}
-              placeholder="Leave blank to automatically create a new Google Sheet"
+              placeholder="Leave blank to automatically create a dedicated sheet for this PIN"
               className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:outline-none focus:border-emerald-500 transition"
             />
-            <p className="text-[11px] text-slate-400">
-              If left blank, a new spreadsheet named <strong className="text-emerald-400">"Hershe POS - Store Data Sync"</strong> will be created in your Google Drive.
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              If left blank, a dedicated spreadsheet named <strong className="text-emerald-400 font-mono">"{generatedSheetTitle}"</strong> will be created in your Google Drive, isolated to this store PIN.
             </p>
           </div>
         )}
