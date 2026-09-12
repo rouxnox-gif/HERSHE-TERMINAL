@@ -10,14 +10,8 @@ import {
   FileText,
   User,
   Loader2,
-  Phone,
-  ShoppingBag,
-  MessageSquare,
   Search,
-  Layers,
   UserCheck,
-  Calendar,
-  AlertCircle,
 } from 'lucide-react';
 import { formatTimeDisplay } from '../utils/storage';
 import { isPreOrder } from '../utils/orderUtils';
@@ -28,8 +22,6 @@ interface PendingApprovalsViewProps {
   onRejectOrder: (orderId: string) => void;
   onApproveAll: () => void;
 }
-
-type ViewMode = 'split' | 'preorders' | 'approvals';
 
 export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
   pendingOrders,
@@ -42,34 +34,23 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2500);
   };
 
-  // Categorize orders into Customer Pre-Orders vs Staff / POS Pending Approvals
-  const preOrders = useMemo(() => {
-    return pendingOrders.filter((p) => isPreOrder(p));
-  }, [pendingOrders]);
-
+  // Filter only in-store / staff pending approvals (customer pre-orders excluded)
   const staffApprovals = useMemo(() => {
-    return pendingOrders.filter((p) => !isPreOrder(p));
+    return pendingOrders.filter((p) => !p.isDeleted && !isPreOrder(p));
   }, [pendingOrders]);
 
-  // Financial subtotals
-  const preOrdersTotal = useMemo(() => {
-    return preOrders.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
-  }, [preOrders]);
-
+  // Financial total
   const staffApprovalsTotal = useMemo(() => {
     return staffApprovals.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
   }, [staffApprovals]);
 
-  const grandTotal = preOrdersTotal + staffApprovalsTotal;
-
-  // Filter lists based on search query
+  // Filter list based on search query
   const matchesSearch = (order: PendingOrder, q: string): boolean => {
     if (!q) return true;
     const lowerQ = q.toLowerCase().trim();
@@ -80,14 +61,9 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
     if (order.source && order.source.toLowerCase().includes(lowerQ)) return true;
     if (order.itemsSummary && order.itemsSummary.toLowerCase().includes(lowerQ)) return true;
     if (order.paymentType && order.paymentType.toLowerCase().includes(lowerQ)) return true;
-    if (order.pickupTime && order.pickupTime.toLowerCase().includes(lowerQ)) return true;
     if (order.items?.some((it) => it.name.toLowerCase().includes(lowerQ))) return true;
     return false;
   };
-
-  const filteredPreOrders = useMemo(() => {
-    return preOrders.filter((p) => matchesSearch(p, searchQuery));
-  }, [preOrders, searchQuery]);
 
   const filteredStaffApprovals = useMemo(() => {
     return staffApprovals.filter((p) => matchesSearch(p, searchQuery));
@@ -134,31 +110,18 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
     }
   };
 
-  // Batch approve specific subset (pre-orders or staff approvals)
-  const handleBatchApproveSubset = async (ordersToApprove: PendingOrder[], label: string) => {
-    if (ordersToApprove.length === 0 || isProcessingBatch) return;
+  // Global batch approve all pending approvals
+  const handleBatchApproveAll = async () => {
+    if (staffApprovals.length === 0 || isProcessingBatch) return;
     setIsProcessingBatch(true);
     try {
-      const count = ordersToApprove.length;
-      for (const order of ordersToApprove) {
+      const count = staffApprovals.length;
+      for (const order of staffApprovals) {
         await onApproveOrder(order);
       }
-      showToast(`Approved ${count} ${label}`);
+      showToast(`Approved all ${count} pending approval${count !== 1 ? 's' : ''}`);
     } catch (err) {
       console.error('Batch approval failed:', err);
-    } finally {
-      setIsProcessingBatch(false);
-    }
-  };
-
-  // Global batch approve
-  const handleBatchApproveAll = async () => {
-    if (pendingOrders.length === 0 || isProcessingBatch) return;
-    setIsProcessingBatch(true);
-    try {
-      const count = pendingOrders.length;
-      await onApproveAll();
-      showToast(`Approved all ${count} order${count !== 1 ? 's' : ''}`);
     } finally {
       setIsProcessingBatch(false);
     }
@@ -184,14 +147,14 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
             <div>
               <div className="flex items-center gap-2.5">
                 <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                  Orders & Approvals
+                  Pending Approvals
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-slate-800 border border-slate-700 text-slate-300 font-mono">
-                  {pendingOrders.length} Total
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500/20 border border-amber-500/30 text-amber-300 font-mono">
+                  {staffApprovals.length} Pending
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Separated queues for customer pickup pre-orders and in-store cashier approvals
+                Review and approve in-store cashier register sales, Binti Gym transfers, and held orders
               </p>
             </div>
           </div>
@@ -204,8 +167,8 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search order, customer, drink..."
-                className="w-full pl-9 pr-8 py-2 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none transition"
+                placeholder="Search order, staff, drink..."
+                className="w-full pl-9 pr-8 py-2 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none transition"
               />
               {searchQuery && (
                 <button
@@ -219,582 +182,242 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
 
             <button
               onClick={handleBatchApproveAll}
-              disabled={pendingOrders.length === 0 || isProcessingBatch}
+              disabled={staffApprovals.length === 0 || isProcessingBatch}
               className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-black text-xs transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
-              title="Approve all customer pre-orders and pending approvals at once"
+              title="Approve all pending staff approvals at once"
             >
               {isProcessingBatch ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <CheckCheck className="w-4 h-4 stroke-[2.5]" />
               )}
-              <span>APPROVE ALL ({pendingOrders.length})</span>
+              <span>APPROVE ALL ({staffApprovals.length})</span>
             </button>
           </div>
         </div>
 
-        {/* METRICS & QUICK FILTER CARDS */}
+        {/* METRICS STATS BAR */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          {/* Pre-Orders Card */}
-          <div
-            onClick={() => setViewMode(viewMode === 'preorders' ? 'split' : 'preorders')}
-            className={`p-3.5 sm:p-4 rounded-xl border transition cursor-pointer relative overflow-hidden group ${
-              viewMode === 'preorders'
-                ? 'bg-emerald-950/40 border-emerald-500 shadow-lg shadow-emerald-950/50'
-                : 'bg-slate-950/60 border-slate-800 hover:border-emerald-500/50'
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <ShoppingBag className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-extrabold text-emerald-400 uppercase tracking-wider">
-                      Customer Pre-Orders
-                    </span>
-                    {preOrders.length > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    )}
-                  </div>
-                  <div className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">
-                    {preOrders.length}
-                    <span className="text-xs font-sans font-semibold text-slate-400 ml-1.5">
-                      awaiting pickup
-                    </span>
-                  </div>
-                </div>
+          <div className="p-3.5 sm:p-4 rounded-xl border bg-slate-950/60 border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <UserCheck className="w-5 h-5" />
               </div>
-              <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-slate-500 block">Subtotal</span>
-                <span className="text-sm sm:text-base font-black text-emerald-400 font-mono">
-                  ${preOrdersTotal.toFixed(2)}
-                </span>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-extrabold text-amber-400 uppercase tracking-wider">
+                    Awaiting Staff Review
+                  </span>
+                  {staffApprovals.length > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  )}
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">
+                  {staffApprovals.length}
+                  <span className="text-xs font-sans font-semibold text-slate-400 ml-1.5">
+                    staff entries
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="mt-2.5 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-              <span>Customer Portal & WhatsApp pick-up orders</span>
-              <span className="text-emerald-400 font-bold group-hover:underline flex items-center gap-0.5">
-                {viewMode === 'preorders' ? 'Showing Pre-Orders' : 'Filter Queue →'}
+            <div className="text-right">
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Value</span>
+              <span className="text-sm sm:text-base font-black text-amber-400 font-mono">
+                ${staffApprovalsTotal.toFixed(2)}
               </span>
             </div>
           </div>
 
-          {/* Staff Pending Approvals Card */}
-          <div
-            onClick={() => setViewMode(viewMode === 'approvals' ? 'split' : 'approvals')}
-            className={`p-3.5 sm:p-4 rounded-xl border transition cursor-pointer relative overflow-hidden group ${
-              viewMode === 'approvals'
-                ? 'bg-sky-950/40 border-sky-500 shadow-lg shadow-sky-950/50'
-                : 'bg-slate-950/60 border-slate-800 hover:border-sky-500/50'
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                  <UserCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-extrabold text-sky-400 uppercase tracking-wider">
-                      Pending Approvals
-                    </span>
-                    {staffApprovals.length > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-                    )}
-                  </div>
-                  <div className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">
-                    {staffApprovals.length}
-                    <span className="text-xs font-sans font-semibold text-slate-400 ml-1.5">
-                      staff entries
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-slate-500 block">Subtotal</span>
-                <span className="text-sm sm:text-base font-black text-sky-400 font-mono">
-                  ${staffApprovalsTotal.toFixed(2)}
-                </span>
-              </div>
+          <div className="p-3.5 sm:p-4 rounded-xl border bg-slate-950/60 border-slate-800 flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-slate-300">Approval Workflow</span>
+              <p className="text-[11px] text-slate-400">
+                Approving adds sales to daily accounts, updates the shift, and deducts inventory stock.
+              </p>
             </div>
-            <div className="mt-2.5 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-              <span>POS counter sales, transfers & staff holds</span>
-              <span className="text-sky-400 font-bold group-hover:underline flex items-center gap-0.5">
-                {viewMode === 'approvals' ? 'Showing Approvals' : 'Filter Queue →'}
+            <div className="text-right pl-3 shrink-0">
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">Status</span>
+              <span className={`text-xs font-extrabold ${staffApprovals.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {staffApprovals.length > 0 ? 'Review Needed' : 'All Clear ✨'}
               </span>
             </div>
-          </div>
-        </div>
-
-        {/* VIEW MODE TABS */}
-        <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
-          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
-            <button
-              onClick={() => setViewMode('split')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                viewMode === 'split'
-                  ? 'bg-slate-800 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Separated View</span>
-            </button>
-
-            <button
-              onClick={() => setViewMode('preorders')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                viewMode === 'preorders'
-                  ? 'bg-emerald-500 text-slate-950 shadow font-extrabold'
-                  : 'text-slate-400 hover:text-emerald-300'
-              }`}
-            >
-              <ShoppingBag className="w-3.5 h-3.5" />
-              <span>Customer Pre-Orders ({preOrders.length})</span>
-            </button>
-
-            <button
-              onClick={() => setViewMode('approvals')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                viewMode === 'approvals'
-                  ? 'bg-sky-500 text-slate-950 shadow font-extrabold'
-                  : 'text-slate-400 hover:text-sky-300'
-              }`}
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>Pending Approvals ({staffApprovals.length})</span>
-            </button>
-          </div>
-
-          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 font-medium">
-            <span>Total Queue Value:</span>
-            <span className="font-mono font-bold text-white">${grandTotal.toFixed(2)}</span>
           </div>
         </div>
       </div>
 
-      {/* SECTION 1: CUSTOMER PRE-ORDERS */}
-      {(viewMode === 'split' || viewMode === 'preorders') && (
-        <div className="rounded-2xl bg-slate-900 border border-emerald-500/30 overflow-hidden shadow-xl">
-          {/* Section Header */}
-          <div className="p-3.5 sm:p-5 bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border-b border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <ShoppingBag className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base sm:text-lg font-black text-white">
-                    Customer Pre-Orders
-                  </h2>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {preOrders.length}
-                  </span>
-                </div>
-                <p className="text-xs text-emerald-400/80">
-                  Customer pickup orders via Customer Portal & WhatsApp
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              <span className="text-xs font-mono font-bold text-emerald-400 mr-2">
-                ${preOrdersTotal.toFixed(2)}
-              </span>
-              <button
-                onClick={() => handleBatchApproveSubset(preOrders, 'Pre-Orders')}
-                disabled={preOrders.length === 0 || isProcessingBatch}
-                className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10"
-              >
-                <CheckCheck className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>Approve All Pre-Orders ({preOrders.length})</span>
-              </button>
-            </div>
+      {/* STAFF & POS PENDING APPROVALS TABLE */}
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-xl">
+        {/* Table Header */}
+        <div className="p-3.5 sm:p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <UserCheck className="w-4 h-4 text-amber-400" />
+            <h2 className="text-sm sm:text-base font-extrabold text-white">
+              In-Store Counter Sales & Holds
+            </h2>
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300">
+              {filteredStaffApprovals.length}
+            </span>
           </div>
+          <span className="text-xs font-mono font-bold text-amber-400">
+            ${staffApprovalsTotal.toFixed(2)}
+          </span>
+        </div>
 
-          {/* Pre-Orders Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950/80 text-slate-400 uppercase font-mono font-bold border-b border-slate-800 text-[11px]">
+        {/* Table Content */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-950/80 text-slate-400 uppercase font-mono font-bold border-b border-slate-800 text-[11px]">
+              <tr>
+                <th className="px-3 sm:px-4 py-3">Order ID & Time</th>
+                <th className="px-3 sm:px-4 py-3">Cashier / Staff</th>
+                <th className="px-3 sm:px-4 py-3">Customer / Source</th>
+                <th className="px-3 sm:px-4 py-3">Payment Method</th>
+                <th className="px-3 sm:px-4 py-3">Items Summary</th>
+                <th className="px-3 sm:px-4 py-3 text-right">Price</th>
+                <th className="px-3 sm:px-4 py-3 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-medium">
+              {filteredStaffApprovals.length === 0 ? (
                 <tr>
-                  <th className="px-3 sm:px-4 py-3">Order & Pickup</th>
-                  <th className="px-3 sm:px-4 py-3">Customer & Contact</th>
-                  <th className="px-3 sm:px-4 py-3">Drinks & Add-ons</th>
-                  <th className="px-3 sm:px-4 py-3">Payment & Note</th>
-                  <th className="px-3 sm:px-4 py-3 text-right">Total</th>
-                  <th className="px-3 sm:px-4 py-3 text-center">Actions</th>
+                  <td colSpan={7} className="px-4 py-12 text-center">
+                    <div className="max-w-sm mx-auto space-y-2">
+                      <CheckCheck className="w-8 h-8 mx-auto text-slate-600" />
+                      <p className="text-slate-300 font-bold text-sm">
+                        {searchQuery
+                          ? `No orders match "${searchQuery}"`
+                          : 'No pending staff approvals at the moment! ✨'}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        All staff cashier sales and held counter entries have been reviewed.
+                      </p>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
-                {filteredPreOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center">
-                      <div className="max-w-sm mx-auto space-y-2">
-                        <ShoppingBag className="w-8 h-8 mx-auto text-slate-600" />
-                        <p className="text-slate-300 font-bold text-sm">
-                          {searchQuery
-                            ? `No pre-orders match "${searchQuery}"`
-                            : 'No customer pre-orders waiting right now! 🥤'}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Incoming customer online and pickup pre-orders will appear here immediately.
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredPreOrders.map((p) => {
-                    const isProcessing = processingIds.has(p.orderId);
-                    const cleanPhone = (p.customerPhone || '').replace(/[^0-9]/g, '');
+              ) : (
+                filteredStaffApprovals.map((p) => {
+                  const isProcessing = processingIds.has(p.orderId);
+                  const staffDisplayName =
+                    p.staffName ||
+                    (p.source ? p.source.replace(/^Staff\s*\((.*)\)$/i, '$1') : 'Cashier');
 
-                    return (
-                      <tr
-                        key={p.orderId}
-                        onClick={() => setSelectedPending(p)}
-                        className="hover:bg-slate-800/40 transition cursor-pointer"
-                      >
-                        {/* Order ID & Pickup Time */}
-                        <td className="px-3 sm:px-4 py-3">
-                          <div className="space-y-1">
-                            <span className="font-mono font-bold text-amber-400 block">
-                              #{p.orderId}
-                            </span>
-                            {p.pickupTime ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/30">
-                                <Clock className="w-3 h-3 text-emerald-400" />
-                                <span>Pickup: {p.pickupTime}</span>
-                              </span>
+                  return (
+                    <tr
+                      key={p.orderId}
+                      onClick={() => setSelectedPending(p)}
+                      className="hover:bg-slate-800/40 transition cursor-pointer"
+                    >
+                      {/* Order ID & Time */}
+                      <td className="px-3 sm:px-4 py-3">
+                        <div className="space-y-0.5">
+                          <span className="font-mono font-bold text-amber-400 block">
+                            #{p.orderId}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {p.date} • {formatTimeDisplay(p.time)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Cashier / Staff */}
+                      <td className="px-3 sm:px-4 py-3">
+                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-sky-500/10 text-sky-300 border border-sky-500/20 inline-flex items-center gap-1.5">
+                          <User className="w-3 h-3 text-sky-400 shrink-0" />
+                          <span>{staffDisplayName}</span>
+                        </span>
+                      </td>
+
+                      {/* Customer / Source */}
+                      <td className="px-3 sm:px-4 py-3 text-slate-300">
+                        <div className="space-y-0.5">
+                          <span className="font-bold text-slate-200 block">
+                            {p.customerName || 'Walk-in Customer'}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {p.source || 'POS Terminal'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Payment Method */}
+                      <td className="px-3 sm:px-4 py-3">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-block border ${
+                            p.paymentType === 'Binti Gym Transfer'
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 font-extrabold'
+                              : p.paymentType?.includes('Bank')
+                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                              : 'bg-slate-800 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {p.paymentType}
+                        </span>
+                      </td>
+
+                      {/* Items Summary */}
+                      <td className="px-3 sm:px-4 py-3 text-slate-200">
+                        <span className="line-clamp-2 max-w-xs text-xs">
+                          {p.itemsSummary ||
+                            p.items?.map((it) => `${it.qty}x ${it.name}`).join(', ')}
+                        </span>
+                      </td>
+
+                      {/* Price */}
+                      <td className="px-3 sm:px-4 py-3 text-right font-mono font-bold text-amber-400 text-xs sm:text-sm">
+                        ${p.totalAmount.toFixed(2)}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-3 sm:px-4 py-3 text-center">
+                        <div
+                          className="flex items-center justify-center gap-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => setSelectedPending(p)}
+                            className="p-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition cursor-pointer"
+                            title="View order details"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={(e) => handleSingleApprove(p, e)}
+                            disabled={isProcessing}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs transition flex items-center gap-1 cursor-pointer"
+                            title="Approve order & finalize sale"
+                          >
+                            {isProcessing ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                {p.date} • {formatTimeDisplay(p.time)}
-                              </span>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
                             )}
-                          </div>
-                        </td>
+                            <span>Approve</span>
+                          </button>
 
-                        {/* Customer & Contact */}
-                        <td className="px-3 sm:px-4 py-3">
-                          <div className="space-y-1">
-                            <div className="font-extrabold text-white text-xs flex items-center gap-1.5">
-                              <span>{p.customerName || 'Customer Pre-Order'}</span>
-                            </div>
-                            {p.customerPhone && (
-                              <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-mono">
-                                <Phone className="w-3 h-3 shrink-0" />
-                                <span>{p.customerPhone}</span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Drinks & Add-ons */}
-                        <td className="px-3 sm:px-4 py-3">
-                          <div className="max-w-xs space-y-1">
-                            <p className="text-slate-200 text-xs line-clamp-2">
-                              {p.itemsSummary ||
-                                p.items?.map((it) => `${it.qty}x ${it.name}`).join(', ')}
-                            </p>
-                            {p.items?.some((it) => it.oat || it.protein || it.addonString) && (
-                              <div className="flex flex-wrap gap-1">
-                                {p.items.map((it, idx) => {
-                                  if (!it.oat && !it.protein && !it.addonString) return null;
-                                  return (
-                                    <span
-                                      key={idx}
-                                      className="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 text-[10px] font-bold"
-                                    >
-                                      {it.name}: {it.addonString || (it.oat ? 'Oat' : 'Protein')}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Payment & Customer Notes */}
-                        <td className="px-3 sm:px-4 py-3">
-                          <div className="space-y-1">
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700 inline-block">
-                              {p.paymentType}
-                            </span>
-                            {p.customerNotes && (
-                              <p className="text-[11px] text-amber-300/90 italic line-clamp-1">
-                                "{p.customerNotes}"
-                              </p>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Price */}
-                        <td className="px-3 sm:px-4 py-3 text-right font-mono font-bold text-emerald-400 text-xs sm:text-sm">
-                          ${p.totalAmount.toFixed(2)}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="px-3 sm:px-4 py-3 text-center">
-                          <div
-                            className="flex items-center justify-center gap-1.5"
-                            onClick={(e) => e.stopPropagation()}
+                          <button
+                            onClick={(e) => handleSingleReject(p.orderId, e)}
+                            disabled={isProcessing}
+                            className="px-2.5 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-400 border border-red-500/30 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
+                            title="Reject and cancel"
                           >
-                            {cleanPhone && (
-                              <a
-                                href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
-                                  `Hi ${p.customerName || 'there'}! Your HERSHE Drinks pre-order #${p.orderId} is being prepared! 🥤`
-                                )}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition cursor-pointer"
-                                title="Chat with customer on WhatsApp"
-                              >
-                                <MessageSquare className="w-3.5 h-3.5" />
-                              </a>
+                            {isProcessing ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <XCircle className="w-3.5 h-3.5" />
                             )}
-
-                            <button
-                              onClick={() => setSelectedPending(p)}
-                              className="p-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition cursor-pointer"
-                              title="View full order details"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              onClick={(e) => handleSingleApprove(p, e)}
-                              disabled={isProcessing}
-                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs transition flex items-center gap-1 cursor-pointer"
-                              title="Approve pre-order & prepare"
-                            >
-                              {isProcessing ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                              )}
-                              <span>Approve</span>
-                            </button>
-
-                            <button
-                              onClick={(e) => handleSingleReject(p.orderId, e)}
-                              disabled={isProcessing}
-                              className="px-2.5 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-400 border border-red-500/30 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-                              title="Reject pre-order"
-                            >
-                              {isProcessing ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <XCircle className="w-3.5 h-3.5" />
-                              )}
-                              <span>Reject</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                            <span>Reject</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
-
-      {/* SECTION 2: STAFF & POS PENDING APPROVALS */}
-      {(viewMode === 'split' || viewMode === 'approvals') && (
-        <div className="rounded-2xl bg-slate-900 border border-sky-500/30 overflow-hidden shadow-xl">
-          {/* Section Header */}
-          <div className="p-3.5 sm:p-5 bg-gradient-to-r from-sky-950/40 via-slate-900 to-slate-900 border-b border-sky-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                <UserCheck className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base sm:text-lg font-black text-white">
-                    Staff & In-Store Pending Approvals
-                  </h2>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-black bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                    {staffApprovals.length}
-                  </span>
-                </div>
-                <p className="text-xs text-sky-400/80">
-                  Cashier register sales, Binti Gym transfers, and held in-store orders
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              <span className="text-xs font-mono font-bold text-sky-400 mr-2">
-                ${staffApprovalsTotal.toFixed(2)}
-              </span>
-              <button
-                onClick={() => handleBatchApproveSubset(staffApprovals, 'Staff Approvals')}
-                disabled={staffApprovals.length === 0 || isProcessingBatch}
-                className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-sky-500/10"
-              >
-                <CheckCheck className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>Approve All Staff ({staffApprovals.length})</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Staff Approvals Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950/80 text-slate-400 uppercase font-mono font-bold border-b border-slate-800 text-[11px]">
-                <tr>
-                  <th className="px-3 sm:px-4 py-3">Order ID & Time</th>
-                  <th className="px-3 sm:px-4 py-3">Cashier / Staff</th>
-                  <th className="px-3 sm:px-4 py-3">Customer / Source</th>
-                  <th className="px-3 sm:px-4 py-3">Payment Method</th>
-                  <th className="px-3 sm:px-4 py-3">Items Summary</th>
-                  <th className="px-3 sm:px-4 py-3 text-right">Price</th>
-                  <th className="px-3 sm:px-4 py-3 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
-                {filteredStaffApprovals.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center">
-                      <div className="max-w-sm mx-auto space-y-2">
-                        <CheckCheck className="w-8 h-8 mx-auto text-slate-600" />
-                        <p className="text-slate-300 font-bold text-sm">
-                          {searchQuery
-                            ? `No staff orders match "${searchQuery}"`
-                            : 'No pending staff approvals at the moment! ✨'}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          All staff cashier sales and held counter entries have been reviewed.
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredStaffApprovals.map((p) => {
-                    const isProcessing = processingIds.has(p.orderId);
-                    const staffDisplayName =
-                      p.staffName ||
-                      (p.source ? p.source.replace(/^Staff\s*\((.*)\)$/i, '$1') : 'Cashier');
-
-                    return (
-                      <tr
-                        key={p.orderId}
-                        onClick={() => setSelectedPending(p)}
-                        className="hover:bg-slate-800/40 transition cursor-pointer"
-                      >
-                        {/* Order ID & Time */}
-                        <td className="px-3 sm:px-4 py-3">
-                          <div className="space-y-0.5">
-                            <span className="font-mono font-bold text-amber-400 block">
-                              #{p.orderId}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {p.date} • {formatTimeDisplay(p.time)}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Cashier / Staff */}
-                        <td className="px-3 sm:px-4 py-3">
-                          <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-sky-500/10 text-sky-300 border border-sky-500/20 inline-flex items-center gap-1.5">
-                            <User className="w-3 h-3 text-sky-400 shrink-0" />
-                            <span>{staffDisplayName}</span>
-                          </span>
-                        </td>
-
-                        {/* Customer / Source */}
-                        <td className="px-3 sm:px-4 py-3 text-slate-300">
-                          <div className="space-y-0.5">
-                            <span className="font-bold text-slate-200 block">
-                              {p.customerName || 'Walk-in Customer'}
-                            </span>
-                            <span className="text-[10px] text-slate-500">
-                              {p.source || 'POS Terminal'}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Payment Method */}
-                        <td className="px-3 sm:px-4 py-3">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[11px] font-bold inline-block border ${
-                              p.paymentType === 'Binti Gym Transfer'
-                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 font-extrabold'
-                                : p.paymentType?.includes('Bank')
-                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                                : 'bg-slate-800 text-slate-300 border-slate-700'
-                            }`}
-                          >
-                            {p.paymentType}
-                          </span>
-                        </td>
-
-                        {/* Items Summary */}
-                        <td className="px-3 sm:px-4 py-3 text-slate-200">
-                          <span className="line-clamp-2 max-w-xs text-xs">
-                            {p.itemsSummary ||
-                              p.items?.map((it) => `${it.qty}x ${it.name}`).join(', ')}
-                          </span>
-                        </td>
-
-                        {/* Price */}
-                        <td className="px-3 sm:px-4 py-3 text-right font-mono font-bold text-sky-400 text-xs sm:text-sm">
-                          ${p.totalAmount.toFixed(2)}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="px-3 sm:px-4 py-3 text-center">
-                          <div
-                            className="flex items-center justify-center gap-1.5"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              onClick={() => setSelectedPending(p)}
-                              className="p-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition cursor-pointer"
-                              title="View order details"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              onClick={(e) => handleSingleApprove(p, e)}
-                              disabled={isProcessing}
-                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs transition flex items-center gap-1 cursor-pointer"
-                              title="Approve order & finalize sale"
-                            >
-                              {isProcessing ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                              )}
-                              <span>Approve</span>
-                            </button>
-
-                            <button
-                              onClick={(e) => handleSingleReject(p.orderId, e)}
-                              disabled={isProcessing}
-                              className="px-2.5 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-400 border border-red-500/30 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-                              title="Reject and cancel"
-                            >
-                              {isProcessing ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <XCircle className="w-3.5 h-3.5" />
-                              )}
-                              <span>Reject</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* POP UP DETAILS MODAL FOR ORDER */}
       {selectedPending && (
@@ -803,37 +426,21 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
             {/* Modal Header */}
             <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div
-                  className={`p-2 rounded-xl border ${
-                    isPreOrder(selectedPending)
-                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                      : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
-                  }`}
-                >
-                  {isPreOrder(selectedPending) ? (
-                    <ShoppingBag className="w-5 h-5" />
-                  ) : (
-                    <FileText className="w-5 h-5" />
-                  )}
+                <div className="p-2 rounded-xl border bg-amber-500/10 border-amber-500/20 text-amber-400">
+                  <FileText className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-mono font-extrabold text-amber-400 text-base">
                       #{selectedPending.orderId}
                     </h3>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                        isPreOrder(selectedPending)
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                          : 'bg-sky-500/20 text-sky-300 border-sky-500/30'
-                      }`}
-                    >
-                      {isPreOrder(selectedPending) ? 'Customer Pre-Order' : 'Staff Approval'}
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border bg-amber-500/20 text-amber-300 border-amber-500/30">
+                      Staff Approval
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400">
                     {selectedPending.date} at {formatTimeDisplay(selectedPending.time)} • Source:{' '}
-                    {selectedPending.source}
+                    {selectedPending.source || 'POS'}
                   </p>
                 </div>
               </div>
@@ -848,64 +455,8 @@ export const PendingApprovalsView: React.FC<PendingApprovalsViewProps> = ({
 
             {/* Modal Body */}
             <div className="p-4 overflow-y-auto space-y-4 flex-1">
-              {/* If Customer Pre-Order, show high-visibility customer card */}
-              {isPreOrder(selectedPending) && (
-                <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-emerald-300 flex items-center gap-1.5">
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                      Pre-Order Pickup Details
-                    </span>
-                    {selectedPending.customerPhone && (
-                      <a
-                        href={`https://wa.me/${selectedPending.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                          `Hi ${selectedPending.customerName || ''}! This is HERSHE Drinks regarding your pre-order #${selectedPending.orderId}.`
-                        )}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold text-[11px] flex items-center gap-1 border border-emerald-500/30 transition"
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        <span>Chat WhatsApp</span>
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-slate-300 text-[11px]">
-                    <div>
-                      <span className="text-slate-500 font-bold block">Customer:</span>
-                      <span className="font-extrabold text-white">
-                        {selectedPending.customerName || 'N/A'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 font-bold block">Pickup Time:</span>
-                      <span className="font-extrabold text-emerald-400">
-                        {selectedPending.pickupTime || 'ASAP'}
-                      </span>
-                    </div>
-                    {selectedPending.customerPhone && (
-                      <div className="col-span-2">
-                        <span className="text-slate-500 font-bold block">WhatsApp Number:</span>
-                        <span className="font-mono text-white">
-                          {selectedPending.customerPhone}
-                        </span>
-                      </div>
-                    )}
-                    {selectedPending.customerNotes && (
-                      <div className="col-span-2 pt-1 border-t border-emerald-500/20">
-                        <span className="text-slate-500 font-bold block">Customer Note:</span>
-                        <span className="italic text-emerald-200">
-                          "{selectedPending.customerNotes}"
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* If Staff Order, show staff cashier card */}
-              {!isPreOrder(selectedPending) && selectedPending.staffName && (
+              {/* Staff Cashier Verification Card */}
+              {selectedPending.staffName && (
                 <div className="p-3.5 rounded-xl bg-sky-950/30 border border-sky-500/30 space-y-1.5 text-xs">
                   <span className="font-extrabold text-sky-300 flex items-center gap-1.5">
                     <UserCheck className="w-3.5 h-3.5" />

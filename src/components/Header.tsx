@@ -171,33 +171,16 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {!isStaffOnly && pendingCount > 0 && (
+          {!isStaffOnly && (pendingApprovalsCount || pendingCount) > 0 && (
             <button
               onClick={() => setActiveTab('pending')}
               className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-bold text-[11px] flex items-center gap-1 active:scale-95 transition cursor-pointer shrink-0"
-              title={`${preOrdersCount || 0} Pre-Orders, ${pendingApprovalsCount || 0} Pending Approvals`}
+              title={`${pendingApprovalsCount || pendingCount} Pending Approvals`}
             >
-              {(preOrdersCount || 0) > 0 && (
-                <span className="flex items-center gap-1 text-emerald-400 font-black">
-                  <ShoppingBag className="w-3 h-3" />
-                  <span>{preOrdersCount}</span>
-                </span>
-              )}
-              {(preOrdersCount || 0) > 0 && (pendingApprovalsCount || 0) > 0 && (
-                <span className="text-slate-600 font-bold">•</span>
-              )}
-              {(pendingApprovalsCount || 0) > 0 && (
-                <span className="flex items-center gap-1 text-amber-400 font-black">
-                  <Clock className="w-3 h-3" />
-                  <span>{pendingApprovalsCount}</span>
-                </span>
-              )}
-              {!(preOrdersCount || 0) && !(pendingApprovalsCount || 0) && (
-                <span className="flex items-center gap-1 text-amber-400 font-black">
-                  <Clock className="w-3 h-3" />
-                  <span>{pendingCount}</span>
-                </span>
-              )}
+              <span className="flex items-center gap-1 text-amber-400 font-black">
+                <Clock className="w-3 h-3" />
+                <span>{pendingApprovalsCount || pendingCount}</span>
+              </span>
             </button>
           )}
 
@@ -401,26 +384,15 @@ export const Header: React.FC<HeaderProps> = ({
                   {tab.label}
                 </span>
 
-                {tab.id === 'pending' && ((preOrdersCount || 0) > 0 || (pendingApprovalsCount || 0) > 0) && !isStaffOnly ? (
+                {tab.id === 'pending' && (pendingApprovalsCount !== undefined ? pendingApprovalsCount : pendingCount) > 0 && !isStaffOnly ? (
                   <div className="ml-auto flex items-center gap-1">
-                    {(preOrdersCount || 0) > 0 && (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-emerald-500 text-slate-950 flex items-center gap-0.5"
-                        title={`${preOrdersCount} Pre-Orders`}
-                      >
-                        <ShoppingBag className="w-2.5 h-2.5" />
-                        {preOrdersCount}
-                      </span>
-                    )}
-                    {(pendingApprovalsCount || 0) > 0 && (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-amber-500 text-slate-950 flex items-center gap-0.5"
-                        title={`${pendingApprovalsCount} Staff Approvals`}
-                      >
-                        <Clock className="w-2.5 h-2.5" />
-                        {pendingApprovalsCount}
-                      </span>
-                    )}
+                    <span
+                      className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-amber-500 text-slate-950 flex items-center gap-0.5"
+                      title={`${pendingApprovalsCount !== undefined ? pendingApprovalsCount : pendingCount} Pending Approvals`}
+                    >
+                      <Clock className="w-2.5 h-2.5" />
+                      {pendingApprovalsCount !== undefined ? pendingApprovalsCount : pendingCount}
+                    </span>
                   </div>
                 ) : tab.badge !== undefined && tab.badge > 0 && !isStaffOnly ? (
                   <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-slate-950 shadow-sm">

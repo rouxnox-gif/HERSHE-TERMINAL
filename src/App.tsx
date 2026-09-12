@@ -152,18 +152,9 @@ export default function App() {
     return inventory.filter(it => it.currentStock <= it.lowStockThreshold).length;
   }, [inventory]);
 
-  // Separate pre-orders and pending approvals counters
-  const { preOrdersCount, pendingApprovalsCount } = useMemo(() => {
-    let pre = 0;
-    let pend = 0;
-    for (const p of pendingOrders) {
-      if (isPreOrder(p)) {
-        pre++;
-      } else {
-        pend++;
-      }
-    }
-    return { preOrdersCount: pre, pendingApprovalsCount: pend };
+  // Pending approvals counter (staff/in-store pending approvals only, pre-orders excluded)
+  const pendingApprovalsCount = useMemo(() => {
+    return pendingOrders.filter(p => !p.isDeleted && !isPreOrder(p)).length;
   }, [pendingOrders]);
 
   // Active beverage orders pending preparation for today (bar/kitchen queue)
@@ -512,9 +503,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         collapsed={collapsed}
         setCollapsed={setCollapsed}
-        pendingCount={pendingOrders.length}
+        pendingCount={pendingApprovalsCount}
         customerOrdersCount={customerOrdersPendingCount}
-        preOrdersCount={preOrdersCount}
         pendingApprovalsCount={pendingApprovalsCount}
         lowStockCount={lowStockCount}
         onResetData={() => setResetConfirmOpen(true)}

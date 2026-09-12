@@ -12,6 +12,7 @@ import { triggerSync } from './syncEngine';
 import { db as firestoreDb } from '../lib/firebase';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { Product, Order, Expense, PendingOrder, StaffShift, InventoryItem, InventoryLog, InventoryMovement, MonthlyDistributionConfig } from '../types';
+import { isPreOrder } from '../utils/orderUtils';
 
 const MIGRATION_FLAG_KEY = 'hershe_pos_dexie_migration_v1_done';
 const OLD_STORAGE_KEY = 'hershe_pos_app_data_v4';
@@ -93,6 +94,58 @@ export async function purgeLegacySyntheticInventory(): Promise<{
 }
 
 /**
+ * Permanently removes customer pre-orders from pendingOrders table/collection.
+ */
+export async function purgeCustomerPreOrdersFromPending(): Promise<number> {
+  let deletedCount = 0;
+  try {
+    const deviceId = await getOrCreateDeviceId();
+    const storeId = await getStoreId();
+    const allPending = await db.pendingOrders.toArray();
+    const preOrdersToDelete = allPending.filter(p => isPreOrder(p));
+
+    if (preOrdersToDelete.length > 0) {
+      await db.transaction('rw', [db.pendingOrders, db.syncQueue], async () => {
+        for (const item of preOrdersToDelete) {
+          const docId = item.orderId || item.id;
+          if (docId) {
+            await db.pendingOrders.delete(docId);
+            await enqueueSyncItem({
+              entityType: 'pendingOrder',
+              entityId: docId,
+              operation: 'DELETE',
+              payload: { id: docId, orderId: docId },
+              deviceId,
+              operationId: `sync-del-preorder-${docId}-${Date.now()}`,
+            });
+            deletedCount++;
+          }
+        }
+      });
+
+      // Synchronously trigger delete directly in Firestore
+      if (firestoreDb && storeId) {
+        for (const item of preOrdersToDelete) {
+          const docId = item.orderId || item.id;
+          if (docId) {
+            try {
+              await deleteDoc(doc(firestoreDb, 'stores', storeId, 'pendingOrders', docId));
+            } catch {
+              // Handled by sync queue if offline
+            }
+          }
+        }
+      }
+
+      triggerSync();
+    }
+  } catch (err) {
+    console.warn('[MigrationService] Notice during customer pre-orders purge:', err);
+  }
+  return deletedCount;
+}
+
+/**
  * Fix #9: Resumable, idempotent, deterministic and atomic migration.
  * Converts legacy localStorage state to IndexedDB with stable IDs.
  * Retains localStorage intact as backup.
@@ -123,6 +176,9 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
 
   // Purge confirmed legacy synthetic inventory on boot
   await purgeLegacySyntheticInventory();
+
+  // Purge customer pre-orders from pending orders on boot
+  await purgeCustomerPreOrdersFromPending();
 
   // Once migrated, never re-run migration on refresh regardless of whether inventory is empty
   if (isMigrated) {

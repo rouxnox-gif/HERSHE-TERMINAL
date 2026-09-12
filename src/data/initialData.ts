@@ -131,42 +131,4 @@ export const INITIAL_SALES: Order[] = [
   }
 ];
 
-export const INITIAL_PENDING_ORDERS: PendingOrder[] = [
-  {
-    orderId: 'HS-ONLINE-001',
-    date: todayStr,
-    time: '02:05 PM',
-    totalAmount: 13.00,
-    paymentType: 'Card Lulu',
-    source: 'WhatsApp Order',
-    itemsSummary: '2x Watermelon Bliss (+ With Oat)',
-    items: [
-      { name: 'Watermelon Bliss', qty: 2, price: 6.00, oat: true }
-    ]
-  },
-  {
-    orderId: 'HS-ONLINE-002',
-    date: todayStr,
-    time: '02:18 PM',
-    totalAmount: 18.50,
-    paymentType: 'Cash',
-    source: 'Online Delivery App',
-    itemsSummary: '1x Strawberry Splash (+ With Protein), 2x Fresh Lemonade',
-    items: [
-      { name: 'Strawberry Splash', qty: 1, price: 7.50, protein: true },
-      { name: 'Fresh Lemonade', qty: 2, price: 4.50 }
-    ]
-  },
-  {
-    orderId: 'HS-ONLINE-003',
-    date: todayStr,
-    time: '02:40 PM',
-    totalAmount: 11.00,
-    paymentType: 'Card Mizah',
-    source: 'Website Pre-Order',
-    itemsSummary: '2x Berry Delight',
-    items: [
-      { name: 'Berry Delight', qty: 2, price: 5.50 }
-    ]
-  }
-];
+export const INITIAL_PENDING_ORDERS: PendingOrder[] = [];

@@ -45,7 +45,7 @@ export const ALL_APP_TABS: TabConfig[] = [
   { id: 'monthly', label: 'Reports', description: 'Monthly performance & account financial breakdown', defaultVisible: true },
   { id: 'distribution', label: 'Partnership distribution', description: 'Calculate profit splits and partner payouts', defaultVisible: true },
   { id: 'history', label: 'History', description: 'Review past completed transactions', defaultVisible: true },
-  { id: 'pending', label: 'Pending', description: 'Review and approve customer pre-orders and staff orders', defaultVisible: true },
+  { id: 'pending', label: 'Pending', description: 'Review and approve in-store cashier and staff orders', defaultVisible: true },
   { id: 'receipts', label: 'Receipts', description: 'Search and reprint thermal customer receipts', defaultVisible: true },
 ];
 
