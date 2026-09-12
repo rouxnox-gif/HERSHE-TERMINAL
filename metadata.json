@@ -1,6 +1,6 @@
 {
   "name": "Remix Remix HERSHE POS Terminal",
-  "description": "Full-featured Point of Sale (POS) and Customer Pre-Order system for HERSHE Fresh Drinks & Beverages featuring customer online ordering with WhatsApp payment proof submission, terminal checkout, expense logging, financial reports, and pending order approvals.",
+  "description": "Full-featured Point of Sale (POS) and internal beverage order management system for HERSHE Fresh Drinks & Beverages featuring terminal checkout, real-time bar & kitchen Customer Orders checklist, inventory tracking, expense logging, and financial reports.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

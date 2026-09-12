@@ -63,6 +63,11 @@ export interface Order {
   items: OrderItem[];
   itemsSummary?: string;
   staffName?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerNotes?: string;
+  fulfillmentStatus?: 'pending' | 'completed';
+  fulfilledAt?: string;
   paymentReceivedDate?: string;
   paymentReceivedTime?: string;
   paymentReceivedAt?: string;
@@ -128,6 +133,8 @@ export interface PendingOrder {
   orderSource?: 'customer_preorder' | 'pos_staff' | 'pos' | string;
   inventoryDeducted?: boolean;
   status?: 'pending' | 'approving' | 'approved' | 'rejected';
+  fulfillmentStatus?: 'pending' | 'completed';
+  fulfilledAt?: string;
   items: {
     name: string;
     qty: number;
@@ -279,7 +286,7 @@ export interface SyncMeta {
 
 export type SyncConnectionState = 'ONLINE' | 'SYNCING' | 'OFFLINE' | 'SYNCED' | 'ERROR';
 
-export type TabType = 'dashboard' | 'sales' | 'inventory' | 'expenses' | 'monthly' | 'distribution' | 'history' | 'pending' | 'receipts' | 'customer';
+export type TabType = 'dashboard' | 'sales' | 'customerOrders' | 'inventory' | 'expenses' | 'monthly' | 'distribution' | 'history' | 'pending' | 'receipts';
 
 export type UserRole = 'admin' | 'staff';
 

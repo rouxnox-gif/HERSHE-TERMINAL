@@ -23,7 +23,8 @@ import {
   PieChart,
   Boxes,
   Sliders,
-  ShoppingBag
+  ShoppingBag,
+  ClipboardList
 } from 'lucide-react';
 import { SyncStatusBadge } from './SyncStatusBadge';
 
@@ -33,6 +34,7 @@ interface HeaderProps {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
   pendingCount: number;
+  customerOrdersCount?: number;
   preOrdersCount?: number;
   pendingApprovalsCount?: number;
   lowStockCount?: number;
@@ -53,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   collapsed,
   setCollapsed,
   pendingCount,
+  customerOrdersCount = 0,
   preOrdersCount,
   pendingApprovalsCount,
   lowStockCount = 0,
@@ -73,30 +76,30 @@ export const Header: React.FC<HeaderProps> = ({
 
   const allTabs: { id: TabType; label: string; icon: React.ReactNode; badge?: number; badgeColor?: string }[] = [
     { id: 'sales', label: 'Terminal', icon: <Monitor className="w-5 h-5" /> },
-    { id: 'customer', label: 'Customer Menu', icon: <ShoppingBag className="w-5 h-5" /> },
+    { id: 'customerOrders', label: 'Customer Orders', icon: <ClipboardList className="w-5 h-5" />, badge: customerOrdersCount, badgeColor: 'bg-amber-500 text-slate-950' },
     { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="w-5 h-5" /> },
     { id: 'inventory', label: 'Inventory', icon: <Boxes className="w-5 h-5" />, badge: lowStockCount > 0 ? lowStockCount : undefined, badgeColor: 'bg-amber-500 text-slate-950' },
     { id: 'expenses', label: 'Expenses', icon: <Receipt className="w-5 h-5" /> },
     { id: 'monthly', label: 'Reports', icon: <TrendingUp className="w-5 h-5" /> },
     { id: 'distribution', label: 'Partnership distribution', icon: <PieChart className="w-5 h-5" /> },
     { id: 'history', label: 'History', icon: <History className="w-5 h-5" /> },
-    { id: 'pending', label: 'Pending & Pre-Orders', icon: <Clock className="w-5 h-5" />, badge: pendingCount, badgeColor: 'bg-emerald-500 text-slate-950' },
+    { id: 'pending', label: 'Pending Approvals', icon: <Clock className="w-5 h-5" />, badge: pendingApprovalsCount || pendingCount, badgeColor: 'bg-emerald-500 text-slate-950' },
     { id: 'receipts', label: 'Receipts', icon: <FileCheck className="w-5 h-5" /> },
   ];
 
   // Filter tabs for staff role and hidden tab settings
   const availableTabs = isStaffOnly
-    ? allTabs.filter(t => t.id === 'sales')
+    ? allTabs.filter(t => t.id === 'sales' || t.id === 'customerOrders')
     : allTabs.filter(t => !currentHiddenList.includes(t.id));
 
   // Determine mobile tabs filtered by hidden status
-  const visiblePrimaryCandidates: TabType[] = ['sales', 'inventory', 'dashboard', 'expenses'];
+  const visiblePrimaryCandidates: TabType[] = ['sales', 'customerOrders', 'inventory', 'dashboard'];
   const activePrimaryIds = visiblePrimaryCandidates.filter(id => !currentHiddenList.includes(id));
   
   // If fewer than 4 primary tabs are visible, pick from remaining visible tabs
   const remainingVisibleTabs = availableTabs.filter(t => !activePrimaryIds.includes(t.id));
   const finalPrimaryIds = isStaffOnly 
-    ? ['sales' as TabType]
+    ? (['sales', 'customerOrders'] as TabType[])
     : [...activePrimaryIds, ...remainingVisibleTabs.map(t => t.id)].slice(0, 4);
 
   const primaryMobileTabs = availableTabs.filter(t => finalPrimaryIds.includes(t.id));

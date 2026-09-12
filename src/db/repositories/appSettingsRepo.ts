@@ -37,7 +37,7 @@ export const DEFAULT_PAYMENT_CONFIGS: PaymentTypeConfig[] = [
 
 export const ALL_APP_TABS: TabConfig[] = [
   { id: 'sales', label: 'Terminal', description: 'Take beverage orders and process checkouts', defaultVisible: true },
-  { id: 'customer', label: 'Customer Menu', description: 'Customer pre-order portal with WhatsApp payment proof checkout', defaultVisible: true },
+  { id: 'customerOrders', label: 'Customer Orders', description: 'Real-time kitchen / bar drinks fulfillment checklist', defaultVisible: true },
   { id: 'dashboard', label: 'Dashboard', description: 'Real-time sales, live profits & performance metrics', defaultVisible: true },
   { id: 'inventory', label: 'Inventory', description: 'Stock levels, restocks, and audit movement logs', defaultVisible: true },
   { id: 'expenses', label: 'Expenses', description: 'Log operational costs, supplier payouts, and utility bills', defaultVisible: true },

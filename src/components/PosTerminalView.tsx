@@ -105,6 +105,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
   // Mobile drawer state
   const [mobileSubTab, setMobileSubTab] = useState<'menu' | 'ticket'>('menu');
   const [isMobilePayModalOpen, setIsMobilePayModalOpen] = useState(false);
+  const [customerNameInput, setCustomerNameInput] = useState('');
 
   // Success and submission protection
   const [chargedSuccess, setChargedSuccess] = useState(false);
@@ -212,6 +213,7 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
     setCart([]);
     setDiscountInput('');
     setCashTendered('');
+    setCustomerNameInput('');
     checkoutSessionIdRef.current = null;
   };
 
@@ -422,6 +424,8 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
       items: orderItems,
       itemsSummary: orderItems.map(i => `${i.qty}x ${i.name}${i.addonString !== 'None' ? ` (+ ${i.addonString})` : ''}`).join(', '),
       staffName: staffOnShift,
+      customerName: customerNameInput.trim() || undefined,
+      fulfillmentStatus: 'pending',
     };
 
     onChargeOrder(newOrder);
@@ -866,6 +870,17 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
           {/* Universal Summary & Pay Now Button (Desktop, Tablet & Mobile) */}
           <div className="pt-3 border-t border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="text-[11px] font-bold text-slate-400 shrink-0">Customer</span>
+              <input
+                type="text"
+                value={customerNameInput}
+                onChange={(e) => setCustomerNameInput(e.target.value)}
+                placeholder="Name (optional)"
+                className="flex-1 max-w-[170px] px-2.5 py-1 bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-lg text-right text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none font-medium"
+              />
+            </div>
+
             <div className="flex items-center justify-between px-1">
               <div>
                 <span className="text-[11px] font-bold text-slate-400 block">Total Ticket</span>
@@ -1400,6 +1415,17 @@ export const PosTerminalView: React.FC<PosTerminalViewProps> = ({
 
             {/* Payment & Amount Breakdown */}
             <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2.5 text-xs">
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="font-semibold text-slate-300">Customer Name</span>
+                <input
+                  type="text"
+                  value={customerNameInput}
+                  onChange={(e) => setCustomerNameInput(e.target.value)}
+                  placeholder="e.g. Sarah (optional)"
+                  className="w-36 sm:w-44 px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-right text-xs font-medium text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
               <div className="flex items-center justify-between text-slate-400">
                 <span>Subtotal</span>
                 <span className="font-mono text-slate-200">BND {subtotal.toFixed(2)}</span>

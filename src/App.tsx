@@ -48,7 +48,9 @@ import { HistoryView } from './components/HistoryView';
 import { PendingApprovalsView } from './components/PendingApprovalsView';
 import { ReceiptsHistoryView } from './components/ReceiptsHistoryView';
 import { PartnershipDistributionView } from './components/PartnershipDistributionView';
-import { CustomerPreOrderView } from './components/CustomerPreOrderView';
+import { CustomerOrdersView } from './components/CustomerOrdersView';
+import { updateOrderFulfillmentStatus } from './services/posService';
+import { getBruneiDateString } from './data/initialData';
 import { ReceiptModal } from './components/ReceiptModal';
 import { StaffCheckInModal } from './components/StaffCheckInModal';
 import { ShiftLogModal } from './components/ShiftLogModal';
@@ -73,36 +75,7 @@ export default function App() {
     storeInfo,
   } = usePOSData();
 
-  // Helper to determine if the current URL points to the public customer portal
-  const checkIsCustomerPortalUrl = () => {
-    if (typeof window === 'undefined') return false;
-    const params = new URLSearchParams(window.location.search);
-    const tabParam = (params.get('tab') || params.get('view') || params.get('mode') || params.get('portal') || '').toLowerCase();
-    const hash = (window.location.hash || '').toLowerCase();
-    const path = (window.location.pathname || '').toLowerCase();
-    
-    return (
-      tabParam === 'customer' ||
-      tabParam === 'menu' ||
-      tabParam === 'order' ||
-      tabParam === 'preorder' ||
-      params.has('customer') ||
-      hash.includes('customer') ||
-      hash.includes('menu') ||
-      hash.includes('order') ||
-      path.endsWith('/customer') ||
-      path.endsWith('/menu')
-    );
-  };
-
-  // URL customer portal status takes absolute priority over any stored terminal session
-  const [isCustomerPortalUrl, setIsCustomerPortalUrl] = useState<boolean>(() => checkIsCustomerPortalUrl());
-
   const [currentUser, setCurrentUser] = useState<UserSession | null>(() => {
-    // If opening via customer portal URL, NEVER restore terminal session into this browser tab
-    if (checkIsCustomerPortalUrl()) {
-      return null;
-    }
     try {
       const stored = localStorage.getItem('hershe_current_user_session');
       return stored ? JSON.parse(stored) : null;
@@ -111,9 +84,7 @@ export default function App() {
     }
   });
 
-  const [activeTab, setActiveTab] = useState<TabType>(() => {
-    return checkIsCustomerPortalUrl() ? 'customer' : 'sales';
-  });
+  const [activeTab, setActiveTab] = useState<TabType>('sales');
   const [activePinCode, setActivePinCode] = useState<string | null>(() => getStoredPinCode());
   const [storePinModalOpen, setStorePinModalOpen] = useState<boolean>(false);
 
@@ -128,54 +99,11 @@ export default function App() {
   const [resetConfirmOpen, setResetConfirmOpen] = useState<boolean>(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState<boolean>(false);
 
-  // Listen to browser navigation / URL parameter changes (popstate & hashchange)
-  useEffect(() => {
-    const handleUrlChange = () => {
-      const isCustomer = checkIsCustomerPortalUrl();
-      setIsCustomerPortalUrl(isCustomer);
-      if (isCustomer) {
-        setActiveTab('customer');
-        setStorePinModalOpen(false);
-      } else {
-        // Returned to terminal URL - restore stored terminal session if available
-        try {
-          const stored = localStorage.getItem('hershe_current_user_session');
-          setCurrentUser(stored ? JSON.parse(stored) : null);
-        } catch {
-          setCurrentUser(null);
-        }
-        setActiveTab(prev => (prev === 'customer' ? 'sales' : prev));
-      }
-    };
-    window.addEventListener('popstate', handleUrlChange);
-    window.addEventListener('hashchange', handleUrlChange);
-    return () => {
-      window.removeEventListener('popstate', handleUrlChange);
-      window.removeEventListener('hashchange', handleUrlChange);
-    };
-  }, []);
-
-  // Sync customer tab to URL
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      if (activeTab === 'customer') {
-        url.searchParams.set('tab', 'customer');
-        window.history.replaceState({}, '', url.toString());
-        setIsCustomerPortalUrl(true);
-      } else if (url.searchParams.get('tab') === 'customer') {
-        url.searchParams.delete('tab');
-        window.history.replaceState({}, '', url.toString());
-        setIsCustomerPortalUrl(false);
-      }
-    }
-  }, [activeTab]);
-
   // Initialize IndexedDB and migrate data from localStorage on boot
   useEffect(() => {
     initAuth();
     initializeDatabaseAndMigrate().then(async () => {
-      // Start real-time sync for any device (admin, staff, or customer link)
+      // Start real-time sync for any device (admin or staff)
       await startRealtimeSync();
       triggerSync();
     });
@@ -194,66 +122,28 @@ export default function App() {
   }, [collapsed]);
 
   useEffect(() => {
-    // In customer portal mode, leave the stored terminal session in localStorage untouched
-    if (isCustomerPortalUrl) {
-      return;
-    }
     if (currentUser) {
       localStorage.setItem('hershe_current_user_session', JSON.stringify(currentUser));
     } else {
       localStorage.removeItem('hershe_current_user_session');
     }
-  }, [currentUser, isCustomerPortalUrl]);
+  }, [currentUser]);
 
-  // Dynamic document title and metadata based on mode (Customer Menu vs Terminal)
+  // Set document title
   useEffect(() => {
-    if (isCustomerPortalUrl || activeTab === 'customer') {
-      const storeName = storeInfo?.storeName || 'HERSHE';
-      document.title = `${storeName} | Online Pre-Order & Drinks Menu`;
-      const metaOg = document.querySelector('meta[property="og:title"]');
-      if (metaOg) {
-        metaOg.setAttribute('content', `${storeName} | Online Pre-Order & Drinks Menu`);
-      }
-    } else {
-      document.title = 'Remix Remix HERSHE POS Terminal';
-      const metaOg = document.querySelector('meta[property="og:title"]');
-      if (metaOg) {
-        metaOg.setAttribute('content', 'Remix Remix HERSHE POS Terminal');
-      }
+    document.title = 'Remix Remix HERSHE POS Terminal';
+    const metaOg = document.querySelector('meta[property="og:title"]');
+    if (metaOg) {
+      metaOg.setAttribute('content', 'Remix Remix HERSHE POS Terminal');
     }
-  }, [isCustomerPortalUrl, activeTab, storeInfo?.storeName]);
+  }, []);
 
-  // Seamlessly redirect customers away from the internal terminal address (hershe-terminal.binti.workers.dev)
-  // to the clean public customer web app so they never see the internal terminal address
+  // Lock staff role strictly to POS terminal view or Customer Orders checklist
   useEffect(() => {
-    if (isCustomerPortalUrl && typeof window !== 'undefined') {
-      const origin = window.location.origin;
-      if (origin.includes('hershe-terminal.binti.workers.dev') || origin.includes('hershe-terminal')) {
-        const cleanTargetBase = storeInfo?.customPortalUrl &&
-          storeInfo.customPortalUrl.trim().startsWith('http') &&
-          !storeInfo.customPortalUrl.includes('hershe-terminal')
-            ? storeInfo.customPortalUrl.trim()
-            : 'https://ais-pre-gmbspf5pdy4xx5pebvsqhx-694944998158.asia-southeast1.run.app';
-
-        try {
-          const urlObj = new URL(cleanTargetBase);
-          const currentParams = new URLSearchParams(window.location.search);
-          currentParams.set('tab', 'customer');
-          urlObj.search = currentParams.toString();
-          window.location.replace(urlObj.toString());
-        } catch {
-          // Graceful fallback if URL parsing fails
-        }
-      }
-    }
-  }, [isCustomerPortalUrl, storeInfo?.customPortalUrl]);
-
-  // Lock staff role strictly to POS terminal view (only while in terminal mode)
-  useEffect(() => {
-    if (!isCustomerPortalUrl && currentUser?.role === 'staff' && activeTab !== 'sales') {
+    if (currentUser?.role === 'staff' && activeTab !== 'sales' && activeTab !== 'customerOrders') {
       setActiveTab('sales');
     }
-  }, [currentUser, activeTab, isCustomerPortalUrl]);
+  }, [currentUser, activeTab]);
 
   // Low stock counter for header badge
   const lowStockCount = useMemo(() => {
@@ -274,6 +164,27 @@ export default function App() {
     }
     return { preOrdersCount: pre, pendingApprovalsCount: pend };
   }, [pendingOrders]);
+
+  // Active beverage orders pending preparation for today (bar/kitchen queue)
+  const customerOrdersPendingCount = useMemo(() => {
+    const today = getBruneiDateString();
+    const map = new Map<string, 'pending' | 'completed'>();
+    for (const ord of orders) {
+      if (!ord.isDeleted && ord.date === today) {
+        map.set(ord.orderId, ord.fulfillmentStatus === 'completed' ? 'completed' : 'pending');
+      }
+    }
+    for (const p of pendingOrders) {
+      if (!p.isDeleted && (p.date === today || !p.date) && !map.has(p.orderId)) {
+        map.set(p.orderId, p.fulfillmentStatus === 'completed' ? 'completed' : 'pending');
+      }
+    }
+    let count = 0;
+    for (const status of map.values()) {
+      if (status === 'pending') count++;
+    }
+    return count;
+  }, [orders, pendingOrders]);
 
   // Combined data structure for modals (like GoogleSheetsSyncModal)
   const appData = useMemo(() => ({
@@ -344,6 +255,8 @@ export default function App() {
         paymentType: newOrder.paymentType,
         source: `Staff (${resolvedStaffName})`,
         staffName: resolvedStaffName,
+        customerName: newOrder.customerName,
+        fulfillmentStatus: newOrder.fulfillmentStatus || 'pending',
         inventoryDeducted: true,
         itemsSummary: newOrder.itemsSummary || newOrder.items.map(i => `${i.qty}x ${i.name}`).join(', '),
         items: newOrder.items.map(i => ({
@@ -546,70 +459,12 @@ export default function App() {
     triggerSync();
   };
 
-  // Submit customer pre-order
-  const handleCustomerPreOrderSubmit = async (pendingOrder: PendingOrder) => {
-    await createPendingOrder({
-      pendingOrder,
-      staffName: `Customer (${pendingOrder.customerName || 'Online Pre-Order'})`,
-    });
+  // Toggle drink preparation fulfillment status (bar/kitchen queue)
+  const handleToggleFulfillment = async (orderId: string, currentStatus: 'pending' | 'completed') => {
+    const nextStatus = currentStatus === 'completed' ? 'pending' : 'completed';
+    await updateOrderFulfillmentStatus(orderId, nextStatus);
   };
 
-  // Navigation from public customer portal to terminal mode
-  const handleNavigateFromCustomerToTerminal = () => {
-    // 1. Remove customer search params and hashes from URL
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('tab');
-      url.searchParams.delete('view');
-      url.searchParams.delete('mode');
-      url.searchParams.delete('portal');
-      if (url.hash.includes('customer') || url.hash.includes('menu') || url.hash.includes('order')) {
-        url.hash = '';
-      }
-      window.history.pushState({}, '', url.pathname + (url.search ? url.search : ''));
-    }
-
-    // 2. Switch off customer portal mode and reset tab
-    setIsCustomerPortalUrl(false);
-    setActiveTab('sales');
-
-    // 3. Authenticate: restore stored terminal session if valid, otherwise require check-in
-    try {
-      const stored = localStorage.getItem('hershe_current_user_session');
-      const parsed = stored ? JSON.parse(stored) : null;
-      if (parsed && (parsed.role === 'admin' || parsed.role === 'staff')) {
-        setCurrentUser(parsed);
-      } else {
-        setCurrentUser(null);
-      }
-    } catch {
-      setCurrentUser(null);
-    }
-  };
-
-  // 1. PUBLIC CUSTOMER PORTAL MODE (Authoritative URL-driven)
-  // Renders strictly the customer pre-order portal without exposing any terminal UI or admin session
-  if (isCustomerPortalUrl) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
-        <main className="flex-1 min-h-[100dvh] w-full pb-0 bg-slate-950">
-          <CustomerPreOrderView
-            products={products}
-            inventory={inventory}
-            storeInfo={storeInfo}
-            paymentConfigs={paymentConfigs}
-            currentUser={null}
-            standalone={true}
-            onSubmitPreOrder={handleCustomerPreOrderSubmit}
-            onSaveStoreInfo={handleSaveStoreInfo}
-            onNavigateToTerminal={handleNavigateFromCustomerToTerminal}
-          />
-        </main>
-      </div>
-    );
-  }
-
-  // 2. AUTHENTICATED / TERMINAL MODE
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
       {/* Staff Check-In Screen Overlay when not checked in */}
@@ -637,6 +492,7 @@ export default function App() {
         collapsed={collapsed}
         setCollapsed={setCollapsed}
         pendingCount={pendingOrders.length}
+        customerOrdersCount={customerOrdersPendingCount}
         preOrdersCount={preOrdersCount}
         pendingApprovalsCount={pendingApprovalsCount}
         lowStockCount={lowStockCount}
@@ -654,23 +510,18 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto no-scrollbar bg-slate-950 flex flex-col h-[calc(100dvh-56px)] md:h-[100dvh] pt-[max(0.5rem,env(safe-area-inset-top,0px))] md:pt-[max(1.5rem,calc(env(safe-area-inset-top,0px)+0.75rem))] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)] pb-20 md:pb-0">
         <div className="flex-1 min-h-0 flex flex-col">
-          {/* Customer Pre-Order Portal View (terminal preview mode) */}
-          {activeTab === 'customer' && (
-            <CustomerPreOrderView
-              products={products}
-              inventory={inventory}
+          {/* Customer Orders Checklist - Kitchen & Bar fulfillment queue (staff & admin) */}
+          {activeTab === 'customerOrders' && (
+            <CustomerOrdersView
+              orders={orders}
+              pendingOrders={pendingOrders}
+              onToggleFulfillment={handleToggleFulfillment}
               storeInfo={storeInfo}
-              paymentConfigs={paymentConfigs}
-              currentUser={currentUser}
-              standalone={false}
-              onSubmitPreOrder={handleCustomerPreOrderSubmit}
-              onSaveStoreInfo={handleSaveStoreInfo}
-              onNavigateToTerminal={() => setActiveTab('sales')}
             />
           )}
 
-          {/* Pos Terminal View - rendered when activeTab is sales or user is staff */}
-          {(activeTab === 'sales' || (currentUser?.role === 'staff' && activeTab !== 'customer')) && (
+          {/* Pos Terminal View - rendered when activeTab is sales */}
+          {activeTab === 'sales' && (
             <PosTerminalView
               products={products}
               inventory={inventory}
@@ -773,8 +624,8 @@ export default function App() {
         data={appData}
       />
 
-      {/* 4-Digit Store PIN Gateway & Real-Time Sync Modal - only for staff/admin tabs */}
-      {storePinModalOpen && activeTab !== 'customer' && (
+      {/* 4-Digit Store PIN Gateway & Real-Time Sync Modal */}
+      {storePinModalOpen && (
         <StorePinModal
           isOpen={storePinModalOpen}
           canCloseWithoutPin={true}

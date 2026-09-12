@@ -460,6 +460,11 @@ export async function approvePendingOrder(pending: PendingOrder): Promise<Order>
       items,
       itemsSummary: pending.itemsSummary,
       staffName: extractedStaff,
+      customerName: pending.customerName,
+      customerPhone: pending.customerPhone,
+      customerNotes: pending.customerNotes,
+      fulfillmentStatus: pending.fulfillmentStatus || 'pending',
+      fulfilledAt: pending.fulfilledAt,
       paymentReceivedDate: approveDate,
       paymentReceivedTime: approveTime,
       paymentReceivedAt: `${approveDate} ${approveTime}`,
@@ -992,4 +997,64 @@ export async function resetDatabaseToDefaults(): Promise<void> {
     await db.distributions.clear();
     await db.distributions.put(getDefaultMonthlyDistribution(currentMonth));
   });
+}
+
+/**
+ * Updates the beverage preparation / fulfillment status of an order
+ * ('pending' | 'completed') in Dexie and queues the change to sync to Firestore.
+ * This survives page reloads, works offline, and synchronizes across POS devices.
+ * It does NOT alter financial approval state, payment totals, or inventory.
+ */
+export async function updateOrderFulfillmentStatus(
+  orderId: string,
+  status: 'pending' | 'completed'
+): Promise<void> {
+  const deviceId = await getOrCreateDeviceId();
+  const nowIso = new Date().toISOString();
+  const fulfilledAt = status === 'completed' ? nowIso : undefined;
+
+  await db.transaction('rw', [db.orders, db.pendingOrders, db.syncQueue], async () => {
+    // 1. Check completed orders table
+    const existingOrder = await db.orders.get(orderId);
+    if (existingOrder) {
+      const updated: Order = {
+        ...existingOrder,
+        fulfillmentStatus: status,
+        fulfilledAt,
+        updatedAt: nowIso,
+      };
+      await db.orders.put(updated);
+      await enqueueSyncItem({
+        entityType: 'order',
+        entityId: orderId,
+        operation: 'UPDATE',
+        payload: updated,
+        deviceId,
+        operationId: `sync-order-fulfill-${orderId}-${Date.now()}`,
+      });
+    }
+
+    // 2. Check pending orders table (if customer pre-order or pending staff order)
+    const existingPending = await db.pendingOrders.get(orderId);
+    if (existingPending) {
+      const updatedPending: PendingOrder = {
+        ...existingPending,
+        fulfillmentStatus: status,
+        fulfilledAt,
+        updatedAt: nowIso,
+      };
+      await db.pendingOrders.put(updatedPending);
+      await enqueueSyncItem({
+        entityType: 'pendingOrder',
+        entityId: orderId,
+        operation: 'UPDATE',
+        payload: updatedPending,
+        deviceId,
+        operationId: `sync-pending-fulfill-${orderId}-${Date.now()}`,
+      });
+    }
+  });
+
+  // Trigger real-time sync with Firestore
+  triggerSync();
 }
