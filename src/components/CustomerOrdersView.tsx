@@ -119,6 +119,8 @@ export const CustomerOrdersView: React.FC<CustomerOrdersViewProps> = ({
 
       const isUnpaid = ord.paymentStatus === 'unpaid' || ord.paymentType === 'Pay Later';
 
+      const isApprovedOrDone = ord.fulfillmentStatus === 'completed' || !!ord.originalSubmissionDate;
+
       map.set(ord.orderId, {
         orderId: ord.orderId,
         date: ord.date || todayDate,
@@ -135,8 +137,8 @@ export const CustomerOrdersView: React.FC<CustomerOrdersViewProps> = ({
         settledStaffName: ord.settledStaffName,
         cashTendered: ord.cashTendered,
         changeDue: ord.changeDue,
-        fulfillmentStatus: ord.fulfillmentStatus === 'completed' ? 'completed' : 'pending',
-        fulfilledAt: ord.fulfilledAt,
+        fulfillmentStatus: isApprovedOrDone ? 'completed' : 'pending',
+        fulfilledAt: ord.fulfilledAt || (isApprovedOrDone ? `${ord.date} ${ord.time}` : undefined),
         sourceType: 'order',
         staffName: ord.staffName,
         items,

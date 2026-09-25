@@ -163,7 +163,8 @@ export default function App() {
     const map = new Map<string, 'pending' | 'completed'>();
     for (const ord of orders) {
       if (!ord.isDeleted && ord.date === today) {
-        map.set(ord.orderId, ord.fulfillmentStatus === 'completed' ? 'completed' : 'pending');
+        const isDone = ord.fulfillmentStatus === 'completed' || !!ord.originalSubmissionDate;
+        map.set(ord.orderId, isDone ? 'completed' : 'pending');
       }
     }
     for (const p of pendingOrders) {

@@ -353,6 +353,20 @@ export async function approvePendingOrder(pending: PendingOrder): Promise<Order>
     if (pending.status === 'approved') {
       const existing = await db.orders.get(pending.orderId);
       if (existing) {
+        if (existing.fulfillmentStatus !== 'completed') {
+          existing.fulfillmentStatus = 'completed';
+          existing.fulfilledAt = existing.fulfilledAt || `${approveDate} ${approveTime}`;
+          existing.updatedAt = nowIso;
+          await db.orders.put(existing);
+          await enqueueSyncItem({
+            entityType: 'order',
+            entityId: existing.orderId,
+            operation: 'UPDATE',
+            payload: existing,
+            deviceId,
+            operationId: `sync-order-fulfill-${existing.orderId}-${Date.now()}`,
+          });
+        }
         completedOrder = existing;
         return;
       }
@@ -360,6 +374,20 @@ export async function approvePendingOrder(pending: PendingOrder): Promise<Order>
 
     const existingOrder = await db.orders.get(pending.orderId);
     if (existingOrder && !existingOrder.isDeleted) {
+      if (existingOrder.fulfillmentStatus !== 'completed') {
+        existingOrder.fulfillmentStatus = 'completed';
+        existingOrder.fulfilledAt = existingOrder.fulfilledAt || `${approveDate} ${approveTime}`;
+        existingOrder.updatedAt = nowIso;
+        await db.orders.put(existingOrder);
+        await enqueueSyncItem({
+          entityType: 'order',
+          entityId: existingOrder.orderId,
+          operation: 'UPDATE',
+          payload: existingOrder,
+          deviceId,
+          operationId: `sync-order-fulfill-${existingOrder.orderId}-${Date.now()}`,
+        });
+      }
       await db.pendingOrders.delete(pending.orderId);
       completedOrder = existingOrder;
       return;
@@ -470,8 +498,8 @@ export async function approvePendingOrder(pending: PendingOrder): Promise<Order>
       customerName: pending.customerName,
       customerPhone: pending.customerPhone,
       customerNotes: pending.customerNotes,
-      fulfillmentStatus: pending.fulfillmentStatus || 'pending',
-      fulfilledAt: pending.fulfilledAt,
+      fulfillmentStatus: 'completed',
+      fulfilledAt: pending.fulfilledAt || `${approveDate} ${approveTime}`,
       paymentStatus: pending.paymentStatus || (approvedPaymentType === 'Pay Later' ? 'unpaid' : 'paid'),
       settledAt: pending.settledAt,
       settledPaymentType: pending.settledPaymentType,
@@ -1095,6 +1123,8 @@ export async function settleOrderPayment(params: {
         ...existingOrder,
         paymentType: params.paymentType,
         paymentStatus: 'paid',
+        fulfillmentStatus: 'completed',
+        fulfilledAt: existingOrder.fulfilledAt || `${today} ${timeStr}`,
         settledAt: nowIso,
         settledPaymentType: params.paymentType,
         settledStaffName: params.staffName,
@@ -1123,6 +1153,8 @@ export async function settleOrderPayment(params: {
         ...existingPending,
         paymentType: params.paymentType,
         paymentStatus: 'paid',
+        fulfillmentStatus: 'completed',
+        fulfilledAt: existingPending.fulfilledAt || `${today} ${timeStr}`,
         settledAt: nowIso,
         settledPaymentType: params.paymentType,
         settledStaffName: params.staffName,

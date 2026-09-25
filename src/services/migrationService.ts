@@ -146,6 +146,38 @@ export async function purgeCustomerPreOrdersFromPending(): Promise<number> {
 }
 
 /**
+ * Automatically marks approved staff kiosk orders and paid orders as completed in Dexie orders table.
+ */
+export async function autoMarkApprovedOrdersDone(): Promise<number> {
+  let updatedCount = 0;
+  try {
+    const allOrders = await db.orders.toArray();
+    const nowIso = new Date().toISOString();
+    const ordersToUpdate = allOrders.filter(o => 
+      !o.isDeleted && 
+      o.fulfillmentStatus !== 'completed' &&
+      (o.originalSubmissionDate || o.paymentReceivedAt || o.paymentStatus === 'paid')
+    );
+
+    if (ordersToUpdate.length > 0) {
+      await db.transaction('rw', [db.orders, db.syncQueue], async () => {
+        for (const order of ordersToUpdate) {
+          order.fulfillmentStatus = 'completed';
+          order.fulfilledAt = order.fulfilledAt || nowIso;
+          order.updatedAt = nowIso;
+          await db.orders.put(order);
+          updatedCount++;
+        }
+      });
+      triggerSync();
+    }
+  } catch (err) {
+    console.warn('[MigrationService] Notice during autoMarkApprovedOrdersDone:', err);
+  }
+  return updatedCount;
+}
+
+/**
  * Fix #9: Resumable, idempotent, deterministic and atomic migration.
  * Converts legacy localStorage state to IndexedDB with stable IDs.
  * Retains localStorage intact as backup.
@@ -179,6 +211,9 @@ export async function initializeDatabaseAndMigrate(): Promise<void> {
 
   // Purge customer pre-orders from pending orders on boot
   await purgeCustomerPreOrdersFromPending();
+
+  // Auto-mark approved orders as completed on boot
+  await autoMarkApprovedOrdersDone();
 
   // Once migrated, never re-run migration on refresh regardless of whether inventory is empty
   if (isMigrated) {
